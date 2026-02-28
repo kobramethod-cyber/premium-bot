@@ -1,3 +1,5 @@
 pyrogram
 tgcrypto
 motor
+flask
+uvloop
