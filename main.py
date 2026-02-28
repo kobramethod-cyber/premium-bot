@@ -6,7 +6,7 @@ from pyrogram import Client, filters, idle
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime, timedelta
 
-# --- RENDER PORT FIX ---
+# --- RENDER PORT BINDING ---
 web_app = Flask(__name__)
 
 @web_app.route('/')
@@ -14,7 +14,7 @@ def home():
     return "Bot is Running"
 
 def run_flask():
-    # Render PORT environment variable zaroori hai
+    # Render ke liye port setup
     port = int(os.environ.get("PORT", 8080))
     web_app.run(host='0.0.0.0', port=port)
 
@@ -30,7 +30,7 @@ UPI_ID = "BHARATPE09910027091@yesbankltd"
 FORCE_CHANNEL_ID = -1003575487358
 STORAGE_CHANNEL_ID = -1003792958477
 
-# Database connection
+# Database initialization
 db_client = AsyncIOMotorClient(MONGO_URI)
 db = db_client.premium_bot
 users_col = db.users
@@ -38,35 +38,38 @@ users_col = db.users
 # Client Initialization
 app = Client("premium_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# --- BASIC HANDLER ---
+# --- HANDLERS ---
 @app.on_message(filters.command("start") & filters.private)
 async def start(client, message):
-    await message.reply("Bot is Online! Use /buy for plans.")
+    await message.reply("✅ **Bot is Online!**\n\nUse /buy to see premium plans.")
 
 @app.on_message(filters.user(ADMIN_ID) & filters.forwarded)
 async def link_gen(client, message):
-    msg = await message.copy(STORAGE_CHANNEL_ID)
-    bot_me = await client.get_me()
-    await message.reply(f"Link: https://t.me/{bot_me.username}?start={msg.id}")
+    try:
+        msg = await message.copy(STORAGE_CHANNEL_ID)
+        bot_me = await client.get_me()
+        await message.reply(f"🔗 **Sharable Link:**\n`https://t.me/{bot_me.username}?start={msg.id}`")
+    except Exception as e:
+        await message.reply(f"❌ Error: {e}")
 
-# --- STARTUP LOGIC ---
+# --- STARTUP ---
 async def start_bot():
-    # 1. Flask ko background thread mein start karein (Render ke liye)
+    # Background mein Flask chalana (Render ke liye)
     threading.Thread(target=run_flask, daemon=True).start()
     
-    # 2. Bot start karein
+    # Bot start
     await app.start()
-    print(">>> BOT STARTED SUCCESSFULLY")
+    print(">>> BOT IS LIVE NOW")
     
-    # 3. Bot ko idle mode mein rakhein
+    # Idle mode (keeps bot running)
     await idle()
     
-    # 4. Stop gracefully
+    # Stop
     await app.stop()
 
 if __name__ == "__main__":
-    # Naye python versions ke liye loop handle karna
     try:
+        # Purana get_event_loop() use kar rahe hain compatibility ke liye
         loop = asyncio.get_event_loop()
         loop.run_until_complete(start_bot())
     except KeyboardInterrupt:
