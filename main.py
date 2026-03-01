@@ -8,7 +8,7 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQ
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime, timedelta
 
-# --- RENDER WEB SERVER ---
+# --- RENDER WEB SERVER (For 24/7 Connectivity) ---
 web_app = Flask(__name__)
 @web_app.route('/')
 def home(): return "Bot is Online"
@@ -37,19 +37,19 @@ users_col = db.users
 
 app = Client("premium_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# --- UTILS: FORCE JOIN ---
+# --- UTILS: FORCE JOIN CHECK ---
 async def check_fjoin(user_id):
     try:
         m = await app.get_chat_member(FORCE_CHANNEL_ID, user_id)
         return m.status not in [enums.ChatMemberStatus.LEFT, enums.ChatMemberStatus.BANNED]
     except: return False
 
-# --- 🔄 AUTO EXPIRE & REMINDER LOOP ---
+# --- 🔄 AUTO EXPIRE & REMINDER LOOP (Runs every 10 mins) ---
 async def expiry_checker():
     while True:
         try:
             now = datetime.now()
-            # 1. Check Expiry
+            # 1. Check for Expired Premium
             expired = users_col.find({"status": "premium", "expiry": {"$lt": now}})
             async for user in expired:
                 uid = user['user_id']
@@ -57,7 +57,7 @@ async def expiry_checker():
                 await app.send_message(uid, "❗ ›› Your premium membership has expired.\n\nRenew your premium membership to continue enjoying the benefits. Contact Our Admins.", 
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📞 Contact Admin", url=CONTACT_URL)]]))
 
-            # 2. 1-Hour Reminder
+            # 2. Check for 1-Hour Reminder
             reminder_time = now + timedelta(hours=1)
             remind = users_col.find({"status": "premium", "expiry": {"$lt": reminder_time, "$gt": now}, "reminded": {"$ne": True}})
             async for user in remind:
@@ -66,9 +66,9 @@ async def expiry_checker():
                 await app.send_message(uid, "››⚠️ Reminder: Your premium membership will expire in 1 hour.\n\nTo renew your premium membership, please Contact Our Admins.",
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📞 Contact Admin", url=CONTACT_URL)]]))
         except: pass
-        await asyncio.sleep(600) # Check every 10 mins for better accuracy
+        await asyncio.sleep(600)
 
-# --- 🚀 START & DEEP LINK ---
+# --- 🚀 START & DEEP LINK (FILE PROTECTION) ---
 @app.on_message(filters.command("start") & filters.private)
 async def start(client, message):
     uid, mention = message.from_user.id, message.from_user.mention
@@ -77,15 +77,19 @@ async def start(client, message):
         btns = [[InlineKeyboardButton("Join Channel", url=FORCE_CHANNEL_LINK)], [InlineKeyboardButton("I am joined ✅", callback_data="check_joined")]]
         return await message.reply(f"Hello {mention}\n\nYou need to join in my Channel/Group to use me\n\nKindly Please join Channel...", reply_markup=InlineKeyboardMarkup(btns))
 
+    # Deep Link Handler (Video/File access)
     if len(message.command) > 1:
         fid = message.command[1]
         user = await users_col.find_one({"user_id": uid})
         if user and user.get("status") == "premium":
-            try: return await client.copy_message(uid, STORAGE_CHANNEL_ID, int(fid))
-            except: return await message.reply("❌ File not found.")
-        return await message.reply("🔒 **This content is for Premium Users only!**", 
+            try: 
+                return await client.copy_message(uid, STORAGE_CHANNEL_ID, int(fid))
+            except: 
+                return await message.reply("❌ File not found or deleted from storage.")
+        return await message.reply("🔒 **This content is for Premium Users only!**\n\nApne manpasand videos dekhne ke liye premium plan kharidein.", 
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💎 BUY PREMIUM 💎", callback_data="buy_plans")]]))
 
+    # Main Menu
     await message.reply(f"Hello {mention}\n\nWelecome to premium bot\n\nPremium ke liye buy premium button tap kare", 
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💎 BUY PREMIUM 💎", callback_data="buy_plans")], [InlineKeyboardButton("📞 Contact Admin 📞", url=CONTACT_URL)]]))
 
@@ -117,7 +121,6 @@ async def select_pay_method(client, cb):
 async def info_pay(client, cb):
     m, a, d = cb.data.split("_")[1], cb.data.split("_")[2], cb.data.split("_")[3]
     if m == "upi":
-        # Automated QR with Exact Amount
         upi_url = f"upi://pay?pa={UPI_ID}&am={a}&cu=INR&tn=Premium_{d}Days"
         qr_api = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(upi_url)}"
         await cb.message.reply_photo(qr_api, caption=f"💠 **Scan & Pay ₹{a}**\n\nPlan: **{d} Days**\nUPI ID: `{UPI_ID}`\n\n✅ Pay karne ke baad screenshot bhejiye.")
@@ -125,11 +128,22 @@ async def info_pay(client, cb):
         await cb.message.reply(f"🟡 **Binance Payment**\n\nBinance ID: `{BINANCE_ID}`\nAmount: **₹{a}**\n\n✅ Pay karne ke baad screenshot bhejiye.")
     await cb.message.delete()
 
-# --- 📸 SCREENSHOT & ADMIN APPROVAL ---
+# --- 🛡️ SECURE HANDLERS (ADMIN VS USER) ---
+
+# 1. Forwarded Messages (Only Admin generates links)
+@app.on_message(filters.forwarded & filters.private)
+async def gen_link(client, message):
+    if message.from_user.id != ADMIN_ID: return
+    msg = await message.copy(STORAGE_CHANNEL_ID)
+    me = await client.get_me()
+    await message.reply(f"🔗 **Protected Link:**\n`https://t.me/{me.username}?start={msg.id}`")
+
+# 2. Photos (User sends Payment Screenshot)
 @app.on_message(filters.photo & filters.private)
 async def handle_ss(client, message):
     uid = message.from_user.id
-    # Admin Buttons
+    if uid == ADMIN_ID: return
+    
     btns = InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Appr 1D", callback_data=f"apr_{uid}_1"), InlineKeyboardButton("✅ Appr 7D", callback_data=f"apr_{uid}_7")],
         [InlineKeyboardButton("✅ Appr 15D", callback_data=f"apr_{uid}_15"), InlineKeyboardButton("✅ Appr 30D", callback_data=f"apr_{uid}_30")],
@@ -138,11 +152,11 @@ async def handle_ss(client, message):
     await message.copy(ADMIN_ID, caption=f"📩 **Payment Proof**\nUser: `{uid}`\nName: {message.from_user.first_name}", reply_markup=btns)
     await message.reply("✅ Membership Request Submitted!\n\n⚡ Your proof is being verified.\n📝 Status: Pending\n⏳ Time: 1 Hours (Max)\n\n🟢 You will be notified automatically once funds are added.")
 
+# --- 👑 ADMIN ACTIONS ---
 @app.on_callback_query(filters.regex(r"(apr|rej)_(\d+)(_(\d+))?"))
 async def admin_action(client, cb):
     data = cb.data.split("_")
     act, uid = data[0], int(data[1])
-    
     if act == "apr":
         days = int(data[2])
         exp = datetime.now() + timedelta(days=days)
@@ -153,28 +167,11 @@ async def admin_action(client, cb):
         await client.send_message(uid, "❌ **Payment Rejected!**\nSahi screenshot bhejiye.")
         await cb.message.edit_caption("Rejected ❌")
 
-# --- ADMIN PANEL & STATS ---
 @app.on_message(filters.command("admin") & filters.user(ADMIN_ID))
 async def admin_panel(client, message):
     total = await users_col.count_documents({})
     prem = await users_col.count_documents({"status": "premium"})
-    await message.reply(f"📊 **Bot Stats**\n\nTotal Users: {total}\nPremium Users: {prem}\n\n**Commands:**\n`/approve ID Days`\n`/broadcast` (Reply to msg)")
-
-@app.on_message(filters.command("approve") & filters.user(ADMIN_ID))
-async def approve_cmd(client, message):
-    try:
-        _, uid, d = message.text.split()
-        exp = datetime.now() + timedelta(days=int(d))
-        await users_col.update_one({"user_id": int(uid)}, {"$set": {"status": "premium", "expiry": exp}}, upsert=True)
-        await client.send_message(int(uid), f"✅ Pᴀʏᴍᴇɴᴛ Sᴜᴄᴄᴇssғᴜʟ!\n\n🎉 Pʀᴇᴍɪᴜᴍ ᴀᴄᴛɪᴠᴀᴛᴇᴅ ғᴏʀ {d} day!")
-        await message.reply("Done!")
-    except: await message.reply("Usage: `/approve ID days`")
-
-@app.on_message(filters.user(ADMIN_ID) & filters.forwarded)
-async def link_gen(client, message):
-    msg = await message.copy(STORAGE_CHANNEL_ID)
-    me = await client.get_me()
-    await message.reply(f"🔗 **Protected Link:**\n`https://t.me/{me.username}?start={msg.id}`")
+    await message.reply(f"📊 **Stats**\nTotal Users: {total}\nPremium: {prem}")
 
 @app.on_message(filters.command("broadcast") & filters.user(ADMIN_ID) & filters.reply)
 async def bc(client, message):
