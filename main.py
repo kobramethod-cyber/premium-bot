@@ -66,14 +66,21 @@ async def expiry_checker():
                 await users_col.update_one({"user_id": uid}, {"$set": {"status": "free"}, "$unset": {"expiry": "", "reminded": ""}})
                 await app.send_message(uid, "❗ ›› Your premium membership has expired.\n\nRenew your premium membership to continue enjoying the benefits. Contact Our Admins.", 
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📞 Contact Admin", url=CONTACT_URL)]]))
+
+            reminder_time = now + timedelta(hours=1)
+            remind = users_col.find({"status": "premium", "expiry": {"$lt": reminder_time, "$gt": now}, "reminded": {"$ne": True}})
+            async for user in remind:
+                uid = user['user_id']
+                await users_col.update_one({"user_id": uid}, {"$set": {"reminded": True}})
+                await app.send_message(uid, "››⚠️ Reminder: Your premium membership will expire in 1 hour.\n\nTo renew your premium membership, please Contact Our Admins.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📞 Contact Admin", url=CONTACT_URL)]]))
         except: pass
         await asyncio.sleep(600)
 
-# --- 🚀 START & USER FLOW (AAPKE EXACT CAPTIONS) ---
+# --- 🚀 START & USER FLOW ---
 @app.on_message(filters.command("start") & filters.private)
 async def start(client, message):
     uid, mention = message.from_user.id, message.from_user.mention
-    
     if not await check_fjoin(uid):
         channels = await get_fjoins()
         btns = [[InlineKeyboardButton("Join Channel", url=ch['link'])] for ch in channels]
@@ -99,7 +106,7 @@ async def check_joined_cb(client, cb):
         await start(client, cb.message)
     else: await cb.answer("Join all channels first! ❌", show_alert=True)
 
-# --- 💰 DYNAMIC PLANS (AAPKE EXACT CAPTIONS) ---
+# --- 💰 DYNAMIC PLANS ---
 @app.on_callback_query(filters.regex("buy_plans"))
 async def show_plans(client, cb):
     plans = await plans_col.find().to_list(length=20)
@@ -132,39 +139,34 @@ async def info_pay(client, cb):
         await cb.message.reply(f"🟡 **Binance ID:** `{BINANCE_ID}`\nAmount: **₹{a}**\n\n✅ Payment ke baad screenshot bhejiye.")
     await cb.message.delete()
 
-# --- 👑 MEGA ADMIN PANEL ---
+# --- 👑 POWER ADMIN PANEL ---
 @app.on_message(filters.command("admin") & filters.private)
 async def admin_panel(client, message):
-    admins = await get_admins()
-    if message.from_user.id not in admins: return
-    
+    if message.from_user.id not in await get_admins(): return
     btns = [
         [InlineKeyboardButton("📝 Plan Mngr", callback_data="mng_plans"), InlineKeyboardButton("📢 F-Join Mngr", callback_data="mng_fj")],
         [InlineKeyboardButton("👥 Admin Mngr", callback_data="mng_admins"), InlineKeyboardButton("📊 Stats", callback_data="mng_stats")],
         [InlineKeyboardButton("✉️ Broadcast", callback_data="bc_cmd")]
     ]
-    await message.reply("👑 **SUPER ADMIN PANEL**\nManage your bot settings from here:", reply_markup=InlineKeyboardMarkup(btns))
+    await message.reply("👑 **SUPER ADMIN PANEL**", reply_markup=InlineKeyboardMarkup(btns))
 
 @app.on_callback_query(filters.regex(r"mng_(plans|fj|admins|stats)"))
 async def manage_cb(client, cb):
     target = cb.data.split("_")[1]
     if cb.from_user.id not in await get_admins(): return
-
     if target == "stats":
         total = await users_col.count_documents({})
         prem = await users_col.count_documents({"status": "premium"})
-        exp = await users_col.count_documents({"status": "free", "expiry": {"$exists": True}})
-        text = f"📊 **BOT STATISTICS**\n\nTotal Users: {total}\nPremium Users: {prem}\nExpired Users: {exp}"
+        text = f"📊 **STATS**\nTotal Users: {total}\nPremium Users: {prem}"
     elif target == "plans":
-        text = "📝 **PLAN MANAGER**\n\nCommands:\n`/add_plan Name|Price|Days` (Add or Change Price)\n`/del_plan Name` (Remove plan)"
+        text = "📝 **PLAN MANAGER**\n`/add_plan Name|Price|Days`\n`/del_plan Name`"
     elif target == "fj":
-        text = "📢 **FORCE JOIN MANAGER**\n\nCommands:\n`/add_fj ChannelID|Link` (Add new)\n`/del_fj ChannelID` (Remove link)"
+        text = "📢 **F-JOIN MANAGER**\n`/add_fj ID|Link`\n`/del_fj ID`"
     elif target == "admins":
-        text = "👥 **ADMIN MANAGER**\n\nCommands:\n`/add_admin UserID` (New admin)\n`/del_admin UserID` (Remove admin)"
-    
+        text = "👥 **ADMIN MANAGER**\n`/add_admin ID`\n`/del_admin ID`"
     await cb.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back_admin")]]))
 
-# --- ADMIN ACTIONS (DYNAMIC LOGIC) ---
+# --- ADMIN ACTIONS (COMMANDS) ---
 @app.on_message(filters.command("add_plan") & filters.private)
 async def add_plan_cmd(client, message):
     if message.from_user.id not in await get_admins(): return
@@ -172,8 +174,8 @@ async def add_plan_cmd(client, message):
         _, data = message.text.split(" ", 1)
         n, p, d = data.split("|")
         await plans_col.update_one({"name": n}, {"$set": {"price": int(p), "days": int(d)}}, upsert=True)
-        await message.reply(f"✅ Plan '{n}' saved/updated!")
-    except: await message.reply("Usage: `/add_plan 1 Month|200|30` (Name|Price|Days)")
+        await message.reply(f"✅ Plan '{n}' Added/Updated!")
+    except: await message.reply("Usage: `/add_plan Gold|200|30` (Name|Price|Days)")
 
 @app.on_message(filters.command("add_admin") & filters.private)
 async def add_admin_cmd(client, message):
@@ -188,44 +190,4 @@ async def add_admin_cmd(client, message):
 async def add_fj_cmd(client, message):
     if message.from_user.id not in await get_admins(): return
     try:
-        _, data = message.text.split(" ", 1)
-        cid, link = data.split("|")
-        await settings_col.update_one({"type": "fjoins"}, {"$push": {"channels": {"id": int(cid), "link": link}}}, upsert=True)
-        await message.reply("✅ New Force Join Added!")
-    except: await message.reply("Usage: `/add_fj -100xxx|https://t.me/xxx` (ID|Link)")
-
-@app.on_message(filters.photo & filters.private)
-async def handle_ss(client, message):
-    uid = message.from_user.id
-    if uid in await get_admins(): return
-    btns = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Approve", callback_data=f"apr_{uid}_30"), InlineKeyboardButton("❌ Reject", callback_data=f"rej_{uid}")]])
-    await message.copy(PRIMARY_ADMIN, caption=f"📩 **Payment Proof**\nUser ID: `{uid}`", reply_markup=btns)
-    await message.reply("✅ Membership Request Submitted!\n\n⚡ Your proof is being verified.\n📝 Status: Pending\n⏳ Time: 1 Hours (Max)\n\n🟢 You will be notified automatically once funds are added.")
-
-@app.on_callback_query(filters.regex(r"apr_(\d+)_(\d+)"))
-async def admin_approve_cb(client, cb):
-    uid, days = int(cb.data.split("_")[1]), int(cb.data.split("_")[2])
-    exp = datetime.now() + timedelta(days=days)
-    await users_col.update_one({"user_id": uid}, {"$set": {"status": "premium", "expiry": exp}}, upsert=True)
-    await client.send_message(uid, f"✅ Pᴀʏᴍᴇɴᴛ Sᴜᴄᴄᴇssғᴜʟ!\n\n🎉 Pʀᴇᴍɪᴜᴍ ᴀᴄᴛɪᴠᴀᴛᴇᴅ!\n💎 Eɴᴊᴏʏ ʏᴏᴜʀ ᴘʀᴇᴍɪᴜᴍ ᴀᴄᴄᴇss!")
-    await cb.message.edit_caption("Approved ✅")
-
-@app.on_message(filters.user(PRIMARY_ADMIN) & filters.forwarded)
-async def gen_link(client, message):
-    msg = await message.copy(STORAGE_CHANNEL_ID)
-    me = await client.get_me()
-    await message.reply(f"🔗 **Protected Link:**\n`https://t.me/{me.username}?start={msg.id}`")
-
-@app.on_callback_query(filters.regex("back_admin"))
-async def back_admin_cb(client, cb):
-    await admin_panel(client, cb.message)
-
-# --- BOOT ---
-async def main():
-    threading.Thread(target=run_flask, daemon=True).start()
-    asyncio.create_task(expiry_checker())
-    await app.start()
-    await idle()
-
-if __name__ == "__main__":
-    asyncio.get_event_loop().run_until_complete(main())
+        _, data = message.text.split
