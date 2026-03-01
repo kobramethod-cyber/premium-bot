@@ -8,7 +8,7 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQ
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime, timedelta
 
-# --- WEB SERVER FOR RENDER ---
+# --- RENDER WEB SERVER ---
 web_app = Flask(__name__)
 @web_app.route('/')
 def home(): return "Bot is Online"
@@ -22,151 +22,129 @@ API_ID = int(os.environ.get("API_ID", "0"))
 API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 MONGO_URI = "mongodb+srv://Kobra:Kartik9307@cluster0.oxqflcj.mongodb.net/premium_bot?retryWrites=true&w=majority"
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
+PRIMARY_ADMIN = int(os.environ.get("ADMIN_ID", "0"))
 
 BINANCE_ID = "1119812744"
 UPI_ID = "BHARATPE09910027091@yesbankltd"
 STORAGE_CHANNEL_ID = -1003792958477
 CONTACT_URL = "http://t.me/Provider169_bot"
-FORCE_CHANNEL_ID = -1003575487358
-FORCE_CHANNEL_LINK = "https://t.me/+mInAMHlOgIo0Yjg1"
 
 db_client = AsyncIOMotorClient(MONGO_URI)
 db = db_client.premium_bot
-users_col = db.users
+users_col, settings_col = db.users, db.settings
 
 app = Client("premium_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # --- UTILS ---
+async def get_admins():
+    data = await settings_col.find_one({"type": "admins"})
+    admin_list = data['list'] if data else []
+    if PRIMARY_ADMIN not in admin_list: admin_list.append(PRIMARY_ADMIN)
+    return admin_list
+
+async def get_fjoins():
+    data = await settings_col.find_one({"type": "fjoins"})
+    return data['channels'] if data else [{"id": -1003575487358, "link": "https://t.me/+mInAMHlOgIo0Yjg1"}]
+
 async def check_fjoin(user_id):
-    try:
-        m = await app.get_chat_member(FORCE_CHANNEL_ID, user_id)
-        return m.status not in [enums.ChatMemberStatus.LEFT, enums.ChatMemberStatus.BANNED]
-    except: return False
+    channels = await get_fjoins()
+    for ch in channels:
+        try:
+            m = await app.get_chat_member(ch['id'], user_id)
+            if m.status in [enums.ChatMemberStatus.LEFT, enums.ChatMemberStatus.BANNED]: return False
+        except: return False
+    return True
 
-async def auto_delete(client, chat_id, message_id):
-    await asyncio.sleep(600)
-    try: await client.delete_messages(chat_id, message_id)
-    except: pass
-
-# --- START ---
+# --- 🚀 START & USER FLOW ---
 @app.on_message(filters.command("start") & filters.private)
 async def start(client, message):
     uid, mention = message.from_user.id, message.from_user.mention
     if not await check_fjoin(uid):
-        btns = [[InlineKeyboardButton("Join channel", url=FORCE_CHANNEL_LINK)], [InlineKeyboardButton("I am joined ✅", callback_data="check_joined")]]
+        channels = await get_fjoins()
+        btns = [[InlineKeyboardButton("Join channel", url=ch['link'])] for ch in channels]
+        btns.append([InlineKeyboardButton("I am joined ✅", callback_data="check_joined")])
         return await message.reply(f"Hello {mention}\n\nYou need to join in my Channel/Group to use me\n\nKindly Please join Channel...", reply_markup=InlineKeyboardMarkup(btns))
 
     if len(message.command) > 1:
         fid = message.command[1]
         user = await users_col.find_one({"user_id": uid})
         if user and user.get("status") == "premium":
-            try: 
-                sent_msg = await client.copy_message(uid, STORAGE_CHANNEL_ID, int(fid))
-                await message.reply("⚠️ This file will be deleted automatically after 10 minutes.")
-                asyncio.create_task(auto_delete(client, uid, sent_msg.id))
-                return
+            try: return await client.copy_message(uid, STORAGE_CHANNEL_ID, int(fid))
             except: return await message.reply("❌ File not found.")
         return await message.reply("🔒 **This content is for Premium Users only!**", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💎 BUY PREMIUM 💎", callback_data="buy_plans")]]))
 
     await message.reply(f"Hello {mention}\n\nWelecome to premium bot\n\nPremium ke liye buy premium button tap kare", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💎 BUY PREMIUM 💎", callback_data="buy_plans")], [InlineKeyboardButton("📞 Contact Admin 📞", url=CONTACT_URL)]]))
 
-# --- BUY PREMIUM MENU ---
+# --- 💰 PAYMENT FLOW ---
 @app.on_callback_query(filters.regex("buy_plans"))
 async def show_plans(client, cb):
-    text = (
-        "✦ 𝗦𝗛𝗢𝗥𝗧𝗡𝗘𝗥 𝗣𝗟𝗔𝗡𝗦\n"
-        "ᴅᴜʀᴀᴛɪᴏɴ & ᴘʀɪᴄᴇ\n"
-        "────────────────────\n"
-        "›› 1 days : ₹30 / $ 0.50\n"
-        "›› 7 Days : ₹70 /$ 1\n"
-        "›› 15 Days : ₹120 /$ 1.50\n"
-        "›› 1 Months : ₹200 /$ 2.50\n\n"
-        "❐ 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗠𝗘𝗧𝗛𝗢𝗗𝗦\n"
-        "❐ 𝗉𝖺𝗒𝗍𝗆 • 𝗀𝗉𝖺𝗒 • 𝗉𝗁𝗈𝗇𝖾 𝗉𝖺𝗒 • 𝗎𝗉𝗂 𝖺𝗇𝖽 𝗊𝗋 and binnance\n"
-        "────────────────────\n"
-        "✦ Pʀᴇᴍɪᴜᴍ ᴡɪʟʟ ʙᴇ ᴀᴅᴅᴇᴅ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ ᴏɴᴄᴇ ᴘᴀɪᴅ\n"
-        "✦ 𝗔𝗙𝗧𝗘𝗥 𝗣𝗔𝗬𝗠𝗘𝗡𝗧:\n"
-        "❐ Sᴇɴᴅ ᴀ ꜱᴄʀᴇᴇɴꜱʜᴏᴛ & ᴡᴀɪᴛ a ꜰᴇᴡ ᴍɪɴᴜᴛᴇꜱ ғᴏʀ ᴀᴄᴛɪᴠᴀᴛɪᴏɴ ✓"
-    )
-    btns = [[InlineKeyboardButton("1 DAY", callback_data="pay_30_1"), InlineKeyboardButton("7 DAY", callback_data="pay_70_7")],
-            [InlineKeyboardButton("15 DAY", callback_data="pay_120_15"), InlineKeyboardButton("30 DAY", callback_data="pay_200_30")]]
+    text = ("✦ 𝗦𝗛𝗢𝗥𝗧𝗡𝗘𝗥 𝗣𝗟𝗔𝗡𝗦\nᴅᴜʀᴀᴛɪᴏɴ & ᴘʀɪᴄᴇ\n────────────────────\n"
+            "›› 1 days : ₹30 / $ 0.50\n›› 7 Days : ₹70 /$ 1.20\n›› 15 Days : ₹120 /$ 2\n›› 1 Months : ₹200 /$ 4\n\n"
+            "❐ 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗠𝗘𝗧𝗛𝗢𝗗𝗦\n❐ 𝗉𝖺𝗒𝗍𝗆 • 𝗀𝗉𝖺𝗒 • 𝗉𝗁𝗈𝗇𝖾 𝗉𝖺𝗒 • 𝗎𝗉𝗂 𝖺𝗇𝖽 𝗊𝗋 and binnance\n────────────────────\n"
+            "✦ Pʀᴇᴍɪᴜᴍ ᴡɪʟʟ ʙᴇ ᴀᴅᴅᴇᴅ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ ᴏɴᴄᴇ ᴘᴀɪᴅ\n✦ 𝗔𝗙𝗧𝗘𝗥 𝗣𝗔𝗬𝗠𝗘𝗡𝗧:\n❐ Sᴇɴᴅ ᴀ ꜱᴄʀᴇᴇɴꜱʜᴏᴛ & ᴡᴀɪᴛ a ꜰᴇᴡ ᴍɪɴᴜᴛᴇꜱ ғᴏʀ ᴀᴄᴛɪᴠᴀᴛɪᴏɴ ✓")
+    btns = [[InlineKeyboardButton("1 DAY", callback_data="p_30_0.50_1"), InlineKeyboardButton("7 DAY", callback_data="p_70_1.20_7")],
+            [InlineKeyboardButton("15 DAY", callback_data="p_120_2_15"), InlineKeyboardButton("30 DAY", callback_data="p_200_4_30")]]
     await cb.edit_message_text(text, reply_markup=InlineKeyboardMarkup(btns))
 
-@app.on_callback_query(filters.regex(r"pay_(\d+)_(\d+)"))
-async def pay_method(client, cb):
-    amt, days = cb.data.split("_")[1], cb.data.split("_")[2]
-    btns = [[InlineKeyboardButton("💳 UPI", callback_data=f"info_upi_{amt}_{days}"), InlineKeyboardButton("💰 BINANCE", callback_data=f"info_bin_{amt}_{days}")]]
-    await cb.edit_message_text(f"💳 Select Payment Method for ₹{amt}:", reply_markup=InlineKeyboardMarkup(btns))
+@app.on_callback_query(filters.regex(r"p_(.*)"))
+async def select_pay(client, cb):
+    _, inr, usd, days = cb.data.split("_")
+    btns = [[InlineKeyboardButton("💳 PAY WITH UPI", callback_data=f"i_upi_{inr}_{days}"), InlineKeyboardButton("💰 PAY WITH BINANCE", callback_data=f"i_bin_{usd}_{days}")]]
+    await cb.edit_message_text(f"💳 **Payment for {days} Days**\nChoose Method:", reply_markup=InlineKeyboardMarkup(btns))
 
-@app.on_callback_query(filters.regex(r"info_(upi|bin)_(\d+)_(\d+)"))
+@app.on_callback_query(filters.regex(r"i_(upi|bin)_(.*)_(.*)"))
 async def info_pay(client, cb):
-    m, a, d = cb.data.split("_")[1], cb.data.split("_")[2], cb.data.split("_")[3]
+    m, val, d = cb.data.split("_")[1], cb.data.split("_")[2], cb.data.split("_")[3]
     if m == "upi":
-        upi_url = f"upi://pay?pa={UPI_ID}&am={a}&cu=INR"
-        qr = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(upi_url)}"
-        await cb.message.reply_photo(qr, caption=f"💠 **Scan & Pay ₹{a}**\nUPI ID: `{UPI_ID}`\n\n✅ Pay ke baad screenshot bhejiye.")
+        qr = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi://pay?pa={UPI_ID}%26am={val}%26cu=INR"
+        await cb.message.reply_photo(qr, caption=f"💠 **Scan & Pay ₹{val}**\nUPI ID: `{UPI_ID}`\n\n✅ Pay ke baad screenshot bhejiye.")
     else:
-        await cb.message.reply(f"🟡 **Binance ID:** `{BINANCE_ID}`\nAmount: **₹{a}**\n\n✅ Pay ke baad screenshot bhejiye.")
+        await cb.message.reply(f"🟡 **Binance ID:** `{BINANCE_ID}`\nAmount: **{val}$**\n\n✅ Pay karne ke baad screenshot bhejiye.")
     await cb.message.delete()
 
-# --- 👑 ADMIN PANEL & LINK GEN ---
-@app.on_message(filters.command("admin") & filters.user(ADMIN_ID))
-async def admin_panel(client, message):
-    total = await users_col.count_documents({})
-    prem = await users_col.count_documents({"status": "premium"})
-    text = f"📊 **Admin Panel**\n\nTotal Users: {total}\nPremium: {prem}"
-    btns = [[InlineKeyboardButton("🔗 Generate Link", callback_data="gen_link_cmd")],
-            [InlineKeyboardButton("✉️ Broadcast", callback_data="bc_cmd"), InlineKeyboardButton("❌ Close", callback_data="close_admin")]]
-    await message.reply(text, reply_markup=InlineKeyboardMarkup(btns))
-
-@app.on_callback_query(filters.regex("gen_link_cmd"))
-async def gen_link_instr(client, cb):
-    await cb.answer("Forward any file to me to generate a permanent link!", show_alert=True)
-
-@app.on_message(filters.user(ADMIN_ID) & filters.forwarded)
-async def gen_link_logic(client, message):
-    msg = await message.copy(STORAGE_CHANNEL_ID)
-    link = f"https://t.me/{(await client.get_me()).username}?start={msg.id}"
-    await message.reply(f"🔗 **Permanent Link Generated:**\n`{link}`", 
-                       reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Copy Link", url=f"https://t.me/share/url?url={link}")]]))
-
-# --- SS & APPROVAL ---
+# --- 📸 PHOTO & APPROVAL ---
 @app.on_message(filters.photo & filters.private)
 async def handle_ss(client, message):
-    if message.from_user.id == ADMIN_ID: return
-    btns = InlineKeyboardMarkup([
-        [InlineKeyboardButton("1 day approve", callback_data=f"apr_{message.from_user.id}_1"), InlineKeyboardButton("7 day approve", callback_data=f"apr_{message.from_user.id}_7")],
-        [InlineKeyboardButton("15 day approve", callback_data=f"apr_{message.from_user.id}_15"), InlineKeyboardButton("1 month approve", callback_data=f"apr_{message.from_user.id}_30")],
-        [InlineKeyboardButton("Reject", callback_data=f"rej_{message.from_user.id}")]
-    ])
-    await message.copy(ADMIN_ID, caption=f"📩 **New Payment Proof**\nUser: `{message.from_user.id}`", reply_markup=btns)
-    # EXACT MESSAGE AS REQUESTED
-    await message.reply("✅ Sᴇɴᴅ ᴀ ꜱᴄʀᴇᴇɴꜱʜᴏᴛ & ᴡᴀɪᴛ ᴀ ꜰᴇᴡ ᴍɪɴᴜᴛᴇꜱ ғᴏʀ ᴀᴄᴛɪᴠᴀᴛɪᴏɴ ✓\n\n🟢 You will be notified automatically once funds are added.")
+    uid = message.from_user.id
+    if uid in await get_admins(): return
+    btns = InlineKeyboardMarkup([[InlineKeyboardButton("1 day approve", callback_data=f"apr_{uid}_1"), InlineKeyboardButton("7 day approve", callback_data=f"apr_{uid}_7")],
+                                 [InlineKeyboardButton("15 day approve", callback_data=f"apr_{uid}_15"), InlineKeyboardButton("1 month approve", callback_data=f"apr_{uid}_30")],
+                                 [InlineKeyboardButton("Reject", callback_data=f"rej_{uid}")]])
+    await message.copy(PRIMARY_ADMIN, caption=f"📩 **Payment Proof**\nUser: `{uid}`", reply_markup=btns)
+    await message.reply("✅ Membership Request Submitted!\n\n⚡ Your proof is being verified.\n📝 Status: Pending\n⏳ Time: 1 Hours (Max)\n\n🟢 You will be notified automatically once funds are added.")
 
-@app.on_callback_query(filters.regex(r"(apr|rej)_(\d+)(_(\d+))?"))
-async def admin_actions(client, cb):
-    if cb.from_user.id != ADMIN_ID: return
-    data = cb.data.split("_")
-    act, uid = data[0], int(data[1])
-    if act == "apr":
-        days = int(data[2])
-        exp = datetime.now() + timedelta(days=days)
-        await users_col.update_one({"user_id": uid}, {"$set": {"status": "premium", "expiry": exp}}, upsert=True)
-        await client.send_message(uid, f"✅ Pᴀʏᴍᴇɴᴛ Sᴜᴄᴄᴇssғᴜʟ!\n\n🎉 Pʀᴇᴍɪᴜᴍ ᴀᴄᴛɪᴠᴀᴛᴇᴅ ғᴏʀ {days} day!\n💎 Eɴᴊᴏʏ ʏᴏᴜʀ ᴘʀᴇᴍɪᴜᴍ ᴀᴄᴄᴇss!")
-        await cb.message.edit_caption(f"Approved for {days} Days ✅")
-    else:
-        await client.send_message(uid, "❌ **Payment Rejected!**")
-        await cb.message.edit_caption("Rejected ❌")
+# --- 👑 ADMIN PANEL ---
+@app.on_message(filters.command("admin") & filters.private)
+async def admin_panel(client, message):
+    if message.from_user.id not in await get_admins(): return
+    total = await users_col.count_documents({})
+    prem = await users_col.count_documents({"status": "premium"})
+    text = f"👑 **Admin Panel**\nTotal: {total} | Prem: {prem}"
+    btns = [[InlineKeyboardButton("🔗 Generate Permanent Link", callback_data="adm_gen_link")],
+            [InlineKeyboardButton("📝 Plan Mngr", callback_data="m_plan"), InlineKeyboardButton("📢 F-Join Mngr", callback_data="m_fj")],
+            [InlineKeyboardButton("👥 Admin Mngr", callback_data="m_adm"), InlineKeyboardButton("📊 Stats", callback_data="m_stats")],
+            [InlineKeyboardButton("✉️ Broadcast", callback_data="m_bc")]]
+    await message.reply(text, reply_markup=InlineKeyboardMarkup(btns))
 
-@app.on_callback_query(filters.regex(r"(close_admin|check_joined)"))
-async def utils(client, cb):
-    if cb.data == "close_admin": await cb.message.delete()
-    elif cb.data == "check_joined":
-        if await check_fjoin(cb.from_user.id):
-            await cb.message.delete()
-            await start(client, cb.message)
-        else: await cb.answer("Join channel first! ❌", show_alert=True)
+@app.on_callback_query(filters.regex("adm_gen_link"))
+async def gen_link_options(client, cb):
+    btns = [[InlineKeyboardButton("Video add", callback_data="add_file"), InlineKeyboardButton("Photo add", callback_data="add_file")],
+            [InlineKeyboardButton("Link add", callback_data="add_file")], [InlineKeyboardButton("🔙 Back", callback_data="back_adm")]]
+    await cb.edit_message_text("📤 **Generate Permanent Link**\n\nForward your Video, Photo, or Link to the bot now to get a permanent sharable link.", reply_markup=InlineKeyboardMarkup(btns))
+
+@app.on_message((filters.video | filters.photo | filters.document) & filters.private)
+async def forward_handler(client, message):
+    if message.from_user.id not in await get_admins(): return
+    msg = await message.copy(STORAGE_CHANNEL_ID)
+    link = f"https://t.me/{(await client.get_me()).username}?start={msg.id}"
+    await message.reply(f"✅ **Permanent Link Generated:**\n\n`{link}`", 
+                       reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Share Link", url=f"https://t.me/share/url?url={link}")]]))
+
+@app.on_callback_query(filters.regex(r"m_(.*)|back_adm|add_file"))
+async def adm_cbs(client, cb):
+    if cb.data == "back_adm": return await admin_panel(client, cb.message)
+    if cb.data == "add_file": return await cb.answer("Just forward any file to the bot!", show_alert=True)
+    await cb.answer("Use /admin commands to manage.", show_alert=True)
 
 # --- BOOT ---
 async def main():
