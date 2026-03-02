@@ -55,7 +55,7 @@ async def check_fjoin(user_id):
         except: return False
     return True
 
-# --- 🚀 START & USER FLOW ---
+# --- 🚀 START ---
 @app.on_message(filters.command("start") & filters.private)
 async def start(client, message):
     uid, mention = message.from_user.id, message.from_user.mention
@@ -75,34 +75,66 @@ async def start(client, message):
 
     await message.reply(f"Hello {mention}\n\nWelecome to premium bot\n\nPremium ke liye buy premium button tap kare", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💎 BUY PREMIUM 💎", callback_data="buy_plans")], [InlineKeyboardButton("📞 Contact Admin 📞", url=CONTACT_URL)]]))
 
-# --- 💰 PAYMENT FLOW ---
-@app.on_callback_query(filters.regex("buy_plans"))
-async def show_plans(client, cb):
-    text = ("✦ 𝗦𝗛𝗢𝗥𝗧𝗡𝗘𝗥 𝗣𝗟𝗔𝗡𝗦\nᴅᴜʀᴀᴛɪᴏɴ & ᴘʀɪᴄᴇ\n────────────────────\n"
-            "›› 1 days : ₹30 / $ 0.50\n›› 7 Days : ₹70 /$ 1.20\n›› 15 Days : ₹120 /$ 2\n›› 1 Months : ₹200 /$ 4\n\n"
-            "❐ 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗠𝗘𝗧𝗛𝗢𝗗𝗦\n❐ 𝗉𝖺𝗒𝗍𝗆 • 𝗀𝗉𝖺𝗒 • 𝗉𝗁𝗈𝗇𝖾 𝗉𝖺𝗒 • 𝗎𝗉𝗂 𝖺𝗇𝖽 𝗊𝗋 and binnance\n────────────────────\n"
-            "✦ Pʀᴇᴍɪᴜᴍ ᴡɪʟʟ ʙᴇ ᴀᴅᴅᴇᴅ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ ᴏɴᴄᴇ ᴘᴀɪᴅ\n✦ 𝗔𝗙𝗧𝗘𝗥 𝗣𝗔𝗬𝗠𝗘𝗡𝗧:\n❐ Sᴇɴᴅ ᴀ ꜱᴄʀᴇᴇɴꜱʜᴏᴛ & ᴡᴀɪᴛ a ꜰᴇᴡ ᴍɪɴᴜᴛᴇꜱ ғᴏʀ ᴀᴄᴛɪᴠᴀᴛɪᴏɴ ✓")
-    btns = [[InlineKeyboardButton("1 DAY", callback_data="p_30_0.50_1"), InlineKeyboardButton("7 DAY", callback_data="p_70_1.20_7")],
-            [InlineKeyboardButton("15 DAY", callback_data="p_120_2_15"), InlineKeyboardButton("30 DAY", callback_data="p_200_4_30")]]
-    await cb.edit_message_text(text, reply_markup=InlineKeyboardMarkup(btns))
+# --- 💰 CALLBACK HANDLER (FIXED) ---
+@app.on_callback_query()
+async def callback_handler(client, cb):
+    uid = cb.from_user.id
+    data = cb.data
+    admins = await get_admins()
 
-@app.on_callback_query(filters.regex(r"p_(.*)"))
-async def select_pay(client, cb):
-    _, inr, usd, days = cb.data.split("_")
-    btns = [[InlineKeyboardButton("💳 PAY WITH UPI", callback_data=f"i_upi_{inr}_{days}"), InlineKeyboardButton("💰 PAY WITH BINANCE", callback_data=f"i_bin_{usd}_{days}")]]
-    await cb.edit_message_text(f"💳 **Payment for {days} Days**\nChoose Method:", reply_markup=InlineKeyboardMarkup(btns))
+    if data == "check_joined":
+        if await check_fjoin(uid):
+            await cb.message.delete()
+            await start(client, cb.message)
+        else: await cb.answer("Join channel first! ❌", show_alert=True)
 
-@app.on_callback_query(filters.regex(r"i_(upi|bin)_(.*)_(.*)"))
-async def info_pay(client, cb):
-    m, val, d = cb.data.split("_")[1], cb.data.split("_")[2], cb.data.split("_")[3]
-    if m == "upi":
-        qr = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi://pay?pa={UPI_ID}%26am={val}%26cu=INR"
-        await cb.message.reply_photo(qr, caption=f"💠 **Scan & Pay ₹{val}**\nUPI ID: `{UPI_ID}`\n\n✅ Pay ke baad screenshot bhejiye.")
-    else:
-        await cb.message.reply(f"🟡 **Binance ID:** `{BINANCE_ID}`\nAmount: **{val}$**\n\n✅ Pay karne ke baad screenshot bhejiye.")
-    await cb.message.delete()
+    elif data == "buy_plans":
+        text = ("✦ 𝗦𝗛𝗢𝗥𝗧𝗡𝗘𝗥 𝗣𝗟𝗔𝗡𝗦\nᴅᴜʀᴀᴛɪᴏɴ & ᴘʀɪᴄᴇ\n────────────────────\n"
+                "›› 1 days : ₹30 / $ 0.50\n›› 7 Days : ₹70 /$ 1.20\n›› 15 Days : ₹120 /$ 2\n›› 1 Months : ₹200 /$ 4\n\n"
+                "❐ 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗠𝗘𝗧𝗛𝗢𝗗𝗦\n❐ 𝗉𝖺𝗒𝗍𝗆 • 𝗀𝗉𝖺𝗒 • 𝗉𝗁𝗈𝗇𝖾 𝗉𝖺𝗒 • 𝗎𝗉𝗂 𝖺𝗇𝖽 𝗊𝗋 and binnance\n────────────────────\n"
+                "✦ Pʀᴇᴍɪᴜᴍ ᴡɪʟʟ ʙᴇ ᴀᴅᴅᴇᴅ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ ᴏɴᴄᴇ ᴘᴀɪᴅ\n✦ 𝗔𝗙𝗧𝗘𝗥 𝗣𝗔𝗬𝗠𝗘𝗡𝗧:\n❐ Sᴇɴᴅ ᴀ ꜱᴄʀᴇᴇɴꜱʜᴏᴛ & ᴡᴀɪᴛ a ꜰᴇᴡ ᴍɪɴᴜᴛᴇꜱ ғᴏʀ ᴀᴄᴛɪᴠᴀᴛɪᴏɴ ✓")
+        btns = [[InlineKeyboardButton("1 DAY", callback_data="p_30_0.50_1"), InlineKeyboardButton("7 DAY", callback_data="p_70_1.20_7")],
+                [InlineKeyboardButton("15 DAY", callback_data="p_120_2_15"), InlineKeyboardButton("30 DAY", callback_data="p_200_4_30")]]
+        await cb.edit_message_text(text, reply_markup=InlineKeyboardMarkup(btns))
 
-# --- 📸 PHOTO & APPROVAL ---
+    elif data.startswith("p_"):
+        _, inr, usd, days = data.split("_")
+        btns = [[InlineKeyboardButton("💳 PAY WITH UPI", callback_data=f"i_upi_{inr}_{days}"), InlineKeyboardButton("💰 PAY WITH BINANCE", callback_data=f"i_bin_{usd}_{days}")]]
+        await cb.edit_message_text(f"💳 **Payment for {days} Days**\nChoose Method:", reply_markup=InlineKeyboardMarkup(btns))
+
+    elif data.startswith("i_"):
+        m, val, d = data.split("_")[1], data.split("_")[2], data.split("_")[3]
+        if m == "upi":
+            qr = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi://pay?pa={UPI_ID}%26am={val}%26cu=INR"
+            await cb.message.reply_photo(qr, caption=f"💠 **Scan & Pay ₹{val}**\nUPI ID: `{UPI_ID}`\n\n✅ Pay ke baad screenshot bhejiye.")
+        else:
+            await cb.message.reply(f"🟡 **Binance ID:** `{BINANCE_ID}`\nAmount: **{val}$**\n\n✅ Pay karne ke baad screenshot bhejiye.")
+        await cb.message.delete()
+
+    # Admin Panel Logic
+    elif uid in admins:
+        if data == "adm_gen_link":
+            btns = [[InlineKeyboardButton("Video add", callback_data="add_file"), InlineKeyboardButton("Photo add", callback_data="add_file")],
+                    [InlineKeyboardButton("Link add", callback_data="add_file")], [InlineKeyboardButton("🔙 Back", callback_data="back_adm")]]
+            await cb.edit_message_text("📤 **Generate Permanent Link**\n\nForward your Video, Photo, or Link to the bot now.", reply_markup=InlineKeyboardMarkup(btns))
+        elif data == "add_file": await cb.answer("Just forward the file to the bot!", show_alert=True)
+        elif data == "back_adm": await admin_panel(client, cb.message)
+        elif data == "m_stats":
+            total = await users_col.count_documents({})
+            prem = await users_col.count_documents({"status": "premium"})
+            await cb.edit_message_text(f"📊 **Stats**\nTotal: {total}\nPremium: {prem}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="back_adm")]]))
+        elif data == "m_bc": await cb.answer("Reply to any message with /broadcast", show_alert=True)
+        elif data.startswith("apr_"):
+            _, user_id, days = data.split("_")
+            exp = datetime.now() + timedelta(days=int(days))
+            await users_col.update_one({"user_id": int(user_id)}, {"$set": {"status": "premium", "expiry": exp}}, upsert=True)
+            await client.send_message(int(user_id), f"✅ Pᴀʏᴍᴇɴᴛ Sᴜᴄᴄᴇssғᴜʟ!\n🎉 Pʀᴇᴍɪᴜᴍ ᴀᴄᴛɪᴠᴀᴛᴇᴅ ғᴏʀ {days} day!")
+            await cb.message.edit_caption(f"Approved for {days} Days ✅")
+        elif data.startswith("rej_"):
+            await client.send_message(int(data.split("_")[1]), "❌ **Payment Rejected!**")
+            await cb.message.edit_caption("Rejected ❌")
+
+# --- 📸 PHOTO HANDLER ---
 @app.on_message(filters.photo & filters.private)
 async def handle_ss(client, message):
     uid = message.from_user.id
@@ -113,7 +145,7 @@ async def handle_ss(client, message):
     await message.copy(PRIMARY_ADMIN, caption=f"📩 **Payment Proof**\nUser: `{uid}`", reply_markup=btns)
     await message.reply("✅ Membership Request Submitted!\n\n⚡ Your proof is being verified.\n📝 Status: Pending\n⏳ Time: 1 Hours (Max)\n\n🟢 You will be notified automatically once funds are added.")
 
-# --- 👑 ADMIN PANEL ---
+# --- 👑 ADMIN PANEL COMMAND ---
 @app.on_message(filters.command("admin") & filters.private)
 async def admin_panel(client, message):
     if message.from_user.id not in await get_admins(): return
@@ -126,25 +158,13 @@ async def admin_panel(client, message):
             [InlineKeyboardButton("✉️ Broadcast", callback_data="m_bc")]]
     await message.reply(text, reply_markup=InlineKeyboardMarkup(btns))
 
-@app.on_callback_query(filters.regex("adm_gen_link"))
-async def gen_link_options(client, cb):
-    btns = [[InlineKeyboardButton("Video add", callback_data="add_file"), InlineKeyboardButton("Photo add", callback_data="add_file")],
-            [InlineKeyboardButton("Link add", callback_data="add_file")], [InlineKeyboardButton("🔙 Back", callback_data="back_adm")]]
-    await cb.edit_message_text("📤 **Generate Permanent Link**\n\nForward your Video, Photo, or Link to the bot now to get a permanent sharable link.", reply_markup=InlineKeyboardMarkup(btns))
-
+# --- LINK GENERATOR (FORWARD) ---
 @app.on_message((filters.video | filters.photo | filters.document) & filters.private)
 async def forward_handler(client, message):
     if message.from_user.id not in await get_admins(): return
     msg = await message.copy(STORAGE_CHANNEL_ID)
     link = f"https://t.me/{(await client.get_me()).username}?start={msg.id}"
-    await message.reply(f"✅ **Permanent Link Generated:**\n\n`{link}`", 
-                       reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Share Link", url=f"https://t.me/share/url?url={link}")]]))
-
-@app.on_callback_query(filters.regex(r"m_(.*)|back_adm|add_file"))
-async def adm_cbs(client, cb):
-    if cb.data == "back_adm": return await admin_panel(client, cb.message)
-    if cb.data == "add_file": return await cb.answer("Just forward any file to the bot!", show_alert=True)
-    await cb.answer("Use /admin commands to manage.", show_alert=True)
+    await message.reply(f"✅ **Permanent Link Generated:**\n\n`{link}`", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Share Link", url=f"https://t.me/share/url?url={link}")]]))
 
 # --- BOOT ---
 async def main():
