@@ -108,17 +108,39 @@ async def info_pay(client, cb):
         await cb.message.reply(f"🟡 **Binance ID:** `{BINANCE_ID}`\nAmount: **{val}$**\n\n✅ Pay karne ke baad screenshot bhejiye.")
     await cb.message.delete()
 
-# --- 📸 ADMIN LINK GENERATOR (FOR PHOTO/VIDEO/FILE) ---
-@app.on_message((filters.video | filters.photo | filters.document) & filters.private)
+# --- 👑 LINK GENERATOR COMMAND (/link) ---
+@app.on_message(filters.command("link") & filters.private & filters.user(ADMIN_ID))
+async def link_command_handler(client, message):
+    replied = message.reply_to_message
+    target = replied if replied else message
+    
+    # Check if there is something to copy (File, Photo, Video, or Text)
+    if target.text or target.media:
+        wait = await message.reply("⏳ Generating Permanent Link...")
+        try:
+            msg = await target.copy(STORAGE_CHANNEL_ID)
+            link = f"https://t.me/{(await client.get_me()).username}?start={msg.id}"
+            await wait.edit(f"✅ **Permanent Link Generated:**\n\n`{link}`", 
+                             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Share Link", url=f"https://t.me/share/url?url={link}")]]))
+        except Exception as e:
+            await wait.edit(f"❌ Error: {e}")
+    else:
+        await message.reply("❌ Please use `/link` while replying to a file/text or send it with the command.")
+
+# --- 📸 ADMIN AUTO LINKER & SCREENSHOT HANDLER ---
+@app.on_message((filters.video | filters.photo | filters.document | filters.text) & filters.private)
 async def admin_uploader(client, message):
     if message.from_user.id == ADMIN_ID:
+        # Check if it's a command, ignore to avoid double response
+        if message.text and message.text.startswith("/"):
+            return
+            
         wait = await message.reply("⏳ Generating Link...")
         msg = await message.copy(STORAGE_CHANNEL_ID)
         link = f"https://t.me/{(await client.get_me()).username}?start={msg.id}"
         await wait.edit(f"✅ **Permanent Link Generated:**\n\n`{link}`", 
                          reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Share Link", url=f"https://t.me/share/url?url={link}")]]))
     else:
-        # User side: Screenshot handling
         if message.photo:
             uid = message.from_user.id
             btns = InlineKeyboardMarkup([
@@ -153,7 +175,7 @@ async def cb_handler(client, cb):
             await start(client, cb.message)
         else: await cb.answer("Join channel first! ❌", show_alert=True)
     elif data == "gen_instr":
-        await cb.answer("Forward any Video/Photo/Link to the bot to get a permanent link!", show_alert=True)
+        await cb.answer("Use /link command or forward any file/text to the bot!", show_alert=True)
     elif data == "m_stats":
         total = await users_col.count_documents({})
         prem = await users_col.count_documents({"status": "premium"})
