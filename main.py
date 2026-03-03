@@ -48,6 +48,35 @@ async def auto_delete(client, chat_id, message_id):
     try: await client.delete_messages(chat_id, message_id)
     except: pass
 
+# --- 🔄 AUTO EXPIRE & REMINDER LOOP ---
+async def expiry_checker():
+    while True:
+        try:
+            now = datetime.now()
+            # 1. Premium Khatam Karne Ka Logic
+            expired = users_col.find({"status": "premium", "expiry": {"$lt": now}})
+            async for user in expired:
+                uid = user['user_id']
+                await users_col.update_one({"user_id": uid}, {"$set": {"status": "free"}, "$unset": {"expiry": "", "reminded": ""}})
+                try:
+                    await app.send_message(uid, "❗ ›› Your premium membership has expired.\n\nRenew your premium membership to continue enjoying the benefits. Contact Our Admins.", 
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📞 Contact Admin", url="http://t.me/Provider169_bot")]]))
+                except: pass
+
+            # 2. 1 Ghante Pehle Reminder Dene Ka Logic
+            reminder_time = now + timedelta(hours=1)
+            remind = users_col.find({"status": "premium", "expiry": {"$lt": reminder_time, "$gt": now}, "reminded": {"$ne": True}})
+            async for user in remind:
+                uid = user['user_id']
+                await users_col.update_one({"user_id": uid}, {"$set": {"reminded": True}})
+                try:
+                    await app.send_message(uid, "››⚠️ Reminder: Your premium membership will expire in 1 hour.\n\nTo renew your premium membership, please Contact Our Admins.",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📞 Contact Admin", url="http://t.me/Provider169_bot")]]))
+                except: pass
+        except Exception as e:
+            print(f"Expiry Error: {e}")
+        await asyncio.sleep(600) # Har 10 min mein check karega
+
 # --- START & DEEP LINK ---
 @app.on_message(filters.command("start") & filters.private)
 async def start(client, message):
@@ -113,28 +142,22 @@ async def info_pay(client, cb):
 async def link_command_handler(client, message):
     replied = message.reply_to_message
     target = replied if replied else message
+    if len(message.command) > 1: target = message
     
-    # Check if there is something to copy (File, Photo, Video, or Text)
-    if target.text or target.media:
-        wait = await message.reply("⏳ Generating Permanent Link...")
-        try:
-            msg = await target.copy(STORAGE_CHANNEL_ID)
-            link = f"https://t.me/{(await client.get_me()).username}?start={msg.id}"
-            await wait.edit(f"✅ **Permanent Link Generated:**\n\n`{link}`", 
-                             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Share Link", url=f"https://t.me/share/url?url={link}")]]))
-        except Exception as e:
-            await wait.edit(f"❌ Error: {e}")
-    else:
-        await message.reply("❌ Please use `/link` while replying to a file/text or send it with the command.")
+    wait = await message.reply("⏳ Generating Permanent Link...")
+    try:
+        msg = await target.copy(STORAGE_CHANNEL_ID)
+        link = f"https://t.me/{(await client.get_me()).username}?start={msg.id}"
+        await wait.edit(f"✅ **Permanent Link Generated:**\n\n`{link}`", 
+                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Share Link", url=f"https://t.me/share/url?url={link}")]]))
+    except Exception as e:
+        await wait.edit(f"❌ Error: {e}")
 
 # --- 📸 ADMIN AUTO LINKER & SCREENSHOT HANDLER ---
 @app.on_message((filters.video | filters.photo | filters.document | filters.text) & filters.private)
 async def admin_uploader(client, message):
     if message.from_user.id == ADMIN_ID:
-        # Check if it's a command, ignore to avoid double response
-        if message.text and message.text.startswith("/"):
-            return
-            
+        if message.text and message.text.startswith("/"): return
         wait = await message.reply("⏳ Generating Link...")
         msg = await message.copy(STORAGE_CHANNEL_ID)
         link = f"https://t.me/{(await client.get_me()).username}?start={msg.id}"
@@ -159,9 +182,8 @@ async def admin_panel(client, message):
     text = f"👑 **Admin Panel**\nTotal: {total} | Prem: {prem}"
     btns = [
         [InlineKeyboardButton("🔗 Generate Permanent Link", callback_data="gen_instr")],
-        [InlineKeyboardButton("📝 Plan Mngr", callback_data="m_plan"), InlineKeyboardButton("📢 F-Join Mngr", callback_data="m_fj")],
-        [InlineKeyboardButton("👥 Admin Mngr", callback_data="m_adm"), InlineKeyboardButton("📊 Stats", callback_data="m_stats")],
-        [InlineKeyboardButton("✉️ Broadcast", callback_data="m_bc")]
+        [InlineKeyboardButton("📊 Stats", callback_data="m_stats")],
+        [InlineKeyboardButton("✉️ Broadcast", callback_data="bc_cmd")]
     ]
     await message.reply(text, reply_markup=InlineKeyboardMarkup(btns))
 
@@ -171,14 +193,10 @@ async def cb_handler(client, cb):
     data = cb.data
     if data == "check_joined":
         if await check_fjoin(cb.from_user.id):
-            await cb.message.delete()
-            await start(client, cb.message)
+            await cb.message.delete(); await start(client, cb.message)
         else: await cb.answer("Join channel first! ❌", show_alert=True)
-    elif data == "gen_instr":
-        await cb.answer("Use /link command or forward any file/text to the bot!", show_alert=True)
     elif data == "m_stats":
-        total = await users_col.count_documents({})
-        prem = await users_col.count_documents({"status": "premium"})
+        total = await users_col.count_documents({}); prem = await users_col.count_documents({"status": "premium"})
         await cb.answer(f"Total: {total}\nPremium: {prem}", show_alert=True)
     elif data.startswith("apr_"):
         _, uid, days = data.split("_")
@@ -193,6 +211,7 @@ async def cb_handler(client, cb):
 # --- BOOT ---
 async def main():
     threading.Thread(target=run_flask, daemon=True).start()
+    asyncio.create_task(expiry_checker()) # Expiry system chalu ho gaya
     await app.start()
     await idle()
 
