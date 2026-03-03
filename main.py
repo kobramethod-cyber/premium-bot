@@ -2,6 +2,7 @@ import os
 import asyncio
 import threading
 import urllib.parse
+import random
 from flask import Flask
 from pyrogram import Client, filters, idle, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
@@ -11,7 +12,7 @@ from datetime import datetime, timedelta
 # --- RENDER WEB SERVER ---
 web_app = Flask(__name__)
 @web_app.route('/')
-def home(): return "Bot is Online"
+def home(): return "Ultra Max Pro Bot Online"
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
@@ -22,7 +23,7 @@ API_ID = int(os.environ.get("API_ID", "25691060"))
 API_HASH = os.environ.get("API_HASH", "8ba2c49611687f1747758376916538c3")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "") 
 MONGO_URI = "mongodb+srv://Kobra:Kartik9307@cluster0.oxqflcj.mongodb.net/premium_bot?retryWrites=true&w=majority"
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "1119812744"))
+ADMIN_ID = 1119812744 # Kartik Nagargoje ID
 
 BINANCE_ID = "1119812744"
 UPI_ID = "BHARATPE09910027091@yesbankltd"
@@ -34,7 +35,7 @@ db_client = AsyncIOMotorClient(MONGO_URI)
 db = db_client.premium_bot
 users_col = db.users
 
-app = Client("premium_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("ultra_max_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # --- UTILS ---
 async def check_fjoin(user_id):
@@ -44,26 +45,26 @@ async def check_fjoin(user_id):
     except: return False
 
 async def auto_delete(client, chat_id, message_id):
-    await asyncio.sleep(600)
+    await asyncio.sleep(600) # 10 Minutes
     try: await client.delete_messages(chat_id, message_id)
     except: pass
 
-# --- 🔄 AUTO EXPIRE & REMINDER LOOP ---
-async def expiry_checker():
+# --- 🔄 AUTO EXPIRE & REMINDERS ---
+async def global_checker():
     while True:
         try:
             now = datetime.now()
-            # 1. Expire logic
+            # 1. Expiry Logic
             expired = users_col.find({"status": "premium", "expiry": {"$lt": now}})
             async for user in expired:
                 uid = user['user_id']
                 await users_col.update_one({"user_id": uid}, {"$set": {"status": "free"}, "$unset": {"expiry": "", "reminded": ""}})
                 try: await app.send_message(uid, "❗ Your premium has expired. Renew now!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💎 RENEW", callback_data="buy_plans")]]))
                 except: pass
-
+            
             # 2. 1-Hour Reminder
-            reminder_time = now + timedelta(hours=1)
-            remind = users_col.find({"status": "premium", "expiry": {"$lt": reminder_time, "$gt": now}, "reminded": {"$ne": True}})
+            rem_time = now + timedelta(hours=1)
+            remind = users_col.find({"status": "premium", "expiry": {"$lt": rem_time, "$gt": now}, "reminded": {"$ne": True}})
             async for user in remind:
                 uid = user['user_id']
                 await users_col.update_one({"user_id": uid}, {"$set": {"reminded": True}})
@@ -90,31 +91,29 @@ async def start(client, message):
             return
         return await message.reply("🔒 Premium Only!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💎 BUY", callback_data="buy_plans")]]))
 
-    await message.reply(f"Hello {mention}!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💎 BUY PREMIUM 💎", callback_data="buy_plans")], [InlineKeyboardButton("👤 MY PLAN", callback_data="my_plan")]]))
+    await message.reply(
+        f"Hello {mention}!\n\nWelcome to Premium Bot.", 
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("💎 BUY PREMIUM 💎", callback_data="buy_plans")],
+            [InlineKeyboardButton("👤 MY PLAN", callback_data="my_plan"), InlineKeyboardButton("📞 Contact Admin", url="http://t.me/Provider169_bot")]
+        ])
+    )
 
-@app.on_message(filters.command("myplan") & filters.private)
-async def myplan_cmd(client, message):
-    user = await users_col.find_one({"user_id": message.from_user.id})
-    if user and user.get("status") == "premium":
-        rem = user['expiry'] - datetime.now()
-        await message.reply(f"✅ **Premium Active**\n⏳ Expires in: `{rem.days} Days, {rem.seconds//3600} Hours`")
-    else:
-        await message.reply("❌ You are a **Free User**.")
+# --- 👑 LINK GENERATOR (REPLY/DIRECT) ---
+@app.on_message(filters.user(ADMIN_ID) & (filters.command("link") | filters.regex(r"t.me\/") | filters.media))
+async def ultra_link_gen(client, message):
+    try:
+        if message.reply_to_message: target = message.reply_to_message
+        elif message.media: target = message
+        elif "start=" in (message.text or ""):
+            file_id = message.text.split("start=")[1].split()[0]
+            target = await client.get_messages(STORAGE_CHANNEL_ID, int(file_id))
+        else: return await message.reply("Reply to a file or send a link.")
 
-# --- 👑 ADMIN & LINK GEN ---
-@app.on_message(filters.user(ADMIN_ID) & filters.private)
-async def admin_handler(client, message):
-    if message.text == "/admin":
-        total = await users_col.count_documents({}); prem = await users_col.count_documents({"status": "premium"})
-        btns = [[InlineKeyboardButton("📊 Stats", callback_data="m_stats")], [InlineKeyboardButton("✉️ Broadcast", callback_data="m_bc")]]
-        return await message.reply(f"👑 Admin Panel\nTotal: {total} | Prem: {prem}", reply_markup=InlineKeyboardMarkup(btns))
-
-    if message.media or (message.text and message.text.startswith("/link")):
-        target = message.reply_to_message if message.reply_to_message else message
-        wait = await message.reply("⏳ Generating...")
         msg = await target.copy(STORAGE_CHANNEL_ID)
         link = f"https://t.me/{(await client.get_me()).username}?start={msg.id}"
-        await wait.edit(f"✅ **Link:** `{link}`")
+        await message.reply(f"✅ **Permanent Link:** `{link}`")
+    except Exception as e: await message.reply(f"❌ Error: {str(e)}")
 
 # --- USER PHOTO HANDLER ---
 @app.on_message(filters.photo & filters.private)
@@ -140,13 +139,13 @@ async def cb_handler(client, cb):
     elif data.startswith("p_"):
         _, inr, usd, days = data.split("_")
         btns = [[InlineKeyboardButton("💳 UPI", callback_data=f"i_upi_{inr}"), InlineKeyboardButton("💰 BINANCE", callback_data=f"i_bin_{usd}")]]
-        await cb.edit_message_text("Select Method:", reply_markup=InlineKeyboardMarkup(btns))
+        await cb.edit_message_text(f"Select Method for {days} Days:", reply_markup=InlineKeyboardMarkup(btns))
     elif data.startswith("i_"):
         m, val = data.split("_")[1], data.split("_")[2]
         if m == "upi":
-            qr = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&bgcolor=fff&color=000&data=upi://pay?pa={UPI_ID}%26am={val}%26cu=INR"
-            await cb.message.reply_photo(qr, caption=f"💠 Pay ₹{val} to `{UPI_ID}`")
-        else: await cb.message.reply(f"🟡 Binance ID: `{BINANCE_ID}`")
+            qr = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi://pay?pa={UPI_ID}%26am={val}"
+            await cb.message.reply_photo(qr, caption=f"💠 Pay ₹{val}\nBhejne ke baad screenshot dein.")
+        else: await cb.message.reply(f"🟡 Binance ID: `{BINANCE_ID}`\nAmount: {val}$")
         await cb.message.delete()
     elif data.startswith("apr_"):
         _, u, d = data.split("_"); exp = datetime.now() + timedelta(days=int(d))
@@ -163,7 +162,7 @@ async def cb_handler(client, cb):
 # --- BOOT ---
 async def main():
     threading.Thread(target=run_flask, daemon=True).start()
-    asyncio.create_task(expiry_checker())
+    asyncio.create_task(global_checker())
     await app.start(); await idle()
 
 if __name__ == "__main__":
