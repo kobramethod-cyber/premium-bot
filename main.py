@@ -10,23 +10,23 @@ from datetime import datetime, timedelta
 # --- RENDER WEB SERVER ---
 web_app = Flask(__name__)
 @web_app.route('/')
-def home(): return "Beyond Ultra Max Bot is Online"
+def home(): return "Beyond Ultra Max Bot Online"
 
 def run_flask():
-    # Render default port 10000
     port = int(os.environ.get("PORT", 10000))
     web_app.run(host='0.0.0.0', port=port)
 
-# --- CONFIGURATION (Bhai, API details my.telegram.org se check karna) ---
-API_ID = 25691060 
-API_HASH = "8ba2c49611687f1747758376916538c3"
-BOT_TOKEN = "7832679234:AAHeOsnEwYh-F0T0C4K_D6N44669866" 
-MONGO_URI = "mongodb+srv://Kobra:Kartik9307@cluster0.oxqflcj.mongodb.net/premium_bot?retryWrites=true&w=majority"
-ADMIN_ID = 1119812744 # Kartik Nagargoje
+# --- CONFIGURATION (Fetching from Environment Variables) ---
+API_ID = int(os.environ.get("API_ID", 25691060))
+API_HASH = os.environ.get("API_HASH", "8ba2c49611687f1747758376916538c3")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "") 
+MONGO_URI = os.environ.get("MONGO_URI", "")
+ADMIN_ID = int(os.environ.get("ADMIN_ID", 1119812744))
 
-BINANCE_ID = "1119812744"
-UPI_ID = "BHARATPE09910027091@yesbankltd"
+# --- HARDCODED DETAILS (Aapki di hui details) ---
 STORAGE_CHANNEL_ID = -1003792958477
+UPI_ID = "BHARATPE09910027091@yesbankltd"
+BINANCE_ID = "1119812744"
 FORCE_CHANNEL_LINK = "https://t.me/+mInAMHlOgIo0Yjg1"
 FORCE_CHANNEL_ID = -1003575487358
 
@@ -44,11 +44,10 @@ async def check_fjoin(user_id):
     except: return False
 
 async def auto_delete(client, chat_id, message_id):
-    await asyncio.sleep(600) # 10 Mins
+    await asyncio.sleep(600)
     try: await client.delete_messages(chat_id, message_id)
     except: pass
 
-# --- 🔄 GLOBAL CHECKER (EXPIRY & 1H REMINDERS) ---
 async def global_checker():
     while True:
         try:
@@ -57,7 +56,7 @@ async def global_checker():
             async for user in expired:
                 uid = user['user_id']
                 await users_col.update_one({"user_id": uid}, {"$set": {"status": "free"}, "$unset": {"expiry": "", "reminded": ""}})
-                try: await app.send_message(uid, "❗ Your premium has expired. Renew now!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💎 RENEW", callback_data="buy_plans")]]))
+                try: await app.send_message(uid, "❗ Your premium expired. Renew now!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💎 RENEW", callback_data="buy_plans")]]))
                 except: pass
         except: pass
         await asyncio.sleep(600)
@@ -68,14 +67,14 @@ async def start(client, message):
     uid, mention = message.from_user.id, message.from_user.mention
     if not await check_fjoin(uid):
         btns = [[InlineKeyboardButton("Join channel", url=FORCE_CHANNEL_LINK)], [InlineKeyboardButton("I am joined ✅", callback_data="check_joined")]]
-        return await message.reply(f"Hello {mention}\nJoin our channel to continue.", reply_markup=InlineKeyboardMarkup(btns))
-
+        return await message.reply(f"Hello {mention}\nJoin channel to continue.", reply_markup=InlineKeyboardMarkup(btns))
+    
     if len(message.command) > 1:
         fid = message.command[1]
         user = await users_col.find_one({"user_id": uid})
         if user and user.get("status") == "premium":
             sent_msg = await client.copy_message(uid, STORAGE_CHANNEL_ID, int(fid))
-            await message.reply("⚠️ This file will be deleted in 10 minutes.")
+            await message.reply("⚠️ Deleted in 10 mins.")
             asyncio.create_task(auto_delete(client, uid, sent_msg.id))
             return
         return await message.reply("🔒 Premium Only!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💎 BUY", callback_data="buy_plans")]]))
@@ -143,23 +142,18 @@ async def cb_handler(client, cb):
         if await check_fjoin(cb.from_user.id): await cb.message.delete(); await start(client, cb.message)
         else: await cb.answer("Join first!", show_alert=True)
     elif data == "close_admin": await cb.message.delete()
-    elif data == "m_stats": await cb.answer(f"Stats shown in panel text.", show_alert=True)
 
-# --- THE FIX: FINAL BOOT LOGIC ---
+# --- THE FIX ---
 async def start_bot():
-    print("--- STARTING TELEGRAM BOT ---")
-    await app.start()
-    asyncio.create_task(global_checker())
-    print("--- BOT IS LIVE ---")
-    await idle()
+    try:
+        await app.start()
+        asyncio.create_task(global_checker())
+        print("✅ BOT IS LIVE ON TELEGRAM!")
+        await idle()
+    except Exception as e:
+        print(f"❌ BOT CRASHED: {e}")
 
 if __name__ == "__main__":
-    # Flask thread chalu karein
     threading.Thread(target=run_flask, daemon=True).start()
-    
-    # Pyrogram event loop setup
-    try:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(start_bot())
-    except KeyboardInterrupt:
-        pass
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(start_bot())
