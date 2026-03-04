@@ -7,7 +7,7 @@ from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from motor.motor_asyncio import AsyncIOMotorClient
 
-# --- RENDER PORT FIX (Isse bot reply dena shuru karega) ---
+# --- RENDER PORT FIX ---
 server = Flask('')
 @server.route('/')
 def home(): return "Bot is Alive 24/7"
@@ -15,7 +15,7 @@ def run_server():
     port = int(os.environ.get("PORT", 8080))
     server.run(host='0.0.0.0', port=port)
 
-# --- CONFIG (Render Variables se lega) ---
+# --- CONFIG (Check these in Render Variables) ---
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -28,6 +28,7 @@ BINANCE_ID = "1119812744"
 FORCE_CHANNEL_LINK = "https://t.me/+mInAMHlOgIo0Yjg1"
 FORCE_CHANNEL_ID = -1003575487358
 
+# Database Connection
 db_client = AsyncIOMotorClient(MONGO_URI)
 db = db_client.premium_bot
 users_db = db.users
@@ -54,6 +55,7 @@ async def check_premium(user_id):
 async def start_cmd(client, message):
     user_id = message.from_user.id
     
+    # Force Join Check
     if not await is_subscribed(user_id):
         return await message.reply(f"Hello {message.from_user.mention}\n\nYou need to join in my Channel/Group to use me\n\nKindly Please join Channel...",
             reply_markup=InlineKeyboardMarkup([
@@ -61,6 +63,7 @@ async def start_cmd(client, message):
                 [InlineKeyboardButton("I am joined", callback_data="check_join")]
             ]))
 
+    # Link Access Logic
     if len(message.command) > 1 and message.command[1].startswith("get_"):
         is_p, _ = await check_premium(user_id)
         if not is_p:
@@ -77,7 +80,8 @@ async def start_cmd(client, message):
             await warn.delete()
             return
 
-    await message.reply(f"Hello {message.from_user.mention}\n\nWelecome to premium bot\n\nPremium ke liye buy premium button tap kare",
+    # Main Menu (Wahi caption jo aapne diya)
+    await message.reply(f"Hello {message.from_user.mention}\n\nWelecome to premium bot \n\nPremium ke liye buy premium button tap kare",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("💎 BUY PREMIUM 💎", callback_data="buy_premium")],
             [InlineKeyboardButton("⚙️ MY PLAN ⚙️", callback_data="my_plan")],
@@ -164,11 +168,10 @@ async def monitor():
         await asyncio.sleep(60)
 
 async def main():
-    # Render Port activity start karein
     Thread(target=run_server).start()
     await app.start()
     asyncio.create_task(monitor())
-    print("Bot is alive and listening!")
+    print("Bot is started successfully!") # Yeh line dikhe toh bot chal raha hai
     await asyncio.get_event_loop().create_future()
 
 if __name__ == "__main__":
