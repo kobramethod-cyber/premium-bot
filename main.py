@@ -10,14 +10,14 @@ from datetime import datetime, timedelta
 # --- RENDER WEB SERVER ---
 web_app = Flask(__name__)
 @web_app.route('/')
-def home(): return "Final Stable Bot Online"
+def home(): return "Bot is Online"
 
 def run_flask():
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.environ.get("PORT", 10000))
     web_app.run(host='0.0.0.0', port=port)
 
-# --- CONFIGURATION ---
-API_ID = 25691060
+# --- CONFIGURATION (Bhai, API details my.telegram.org se check karna mat bhulna) ---
+API_ID = 25691060 
 API_HASH = "8ba2c49611687f1747758376916538c3"
 BOT_TOKEN = "7832679234:AAHeOsnEwYh-F0T0C4K_D6N44669866" 
 MONGO_URI = "mongodb+srv://Kobra:Kartik9307@cluster0.oxqflcj.mongodb.net/premium_bot?retryWrites=true&w=majority"
@@ -47,20 +47,29 @@ async def auto_delete(client, chat_id, message_id):
     try: await client.delete_messages(chat_id, message_id)
     except: pass
 
-# --- 🔄 EXPIRY CHECKER (OLD FEATURE) ---
+# --- 🔄 GLOBAL CHECKER (EXPIRY & 1H REMINDERS) ---
 async def global_checker():
     while True:
         try:
             now = datetime.now()
             expired = users_col.find({"status": "premium", "expiry": {"$lt": now}})
             async for user in expired:
-                await users_col.update_one({"user_id": user['user_id']}, {"$set": {"status": "free"}, "$unset": {"expiry": ""}})
-                try: await app.send_message(user['user_id'], "❗ Your premium expired. Renew now!")
+                uid = user['user_id']
+                await users_col.update_one({"user_id": uid}, {"$set": {"status": "free"}, "$unset": {"expiry": "", "reminded": ""}})
+                try: await app.send_message(uid, "❗ Your premium has expired. Renew now!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💎 RENEW", callback_data="buy_plans")]]))
+                except: pass
+            
+            rem_time = now + timedelta(hours=1)
+            remind = users_col.find({"status": "premium", "expiry": {"$lt": rem_time, "$gt": now}, "reminded": {"$ne": True}})
+            async for user in remind:
+                uid = user['user_id']
+                await users_col.update_one({"user_id": uid}, {"$set": {"reminded": True}})
+                try: await app.send_message(uid, "⚠️ Warning: Your premium expires in 1 hour!")
                 except: pass
         except: pass
         await asyncio.sleep(600)
 
-# --- START & LINK GEN (OLD FEATURES) ---
+# --- START MENU ---
 @app.on_message(filters.command("start") & filters.private)
 async def start(client, message):
     uid, mention = message.from_user.id, message.from_user.mention
@@ -83,12 +92,12 @@ async def start(client, message):
         [InlineKeyboardButton("👤 MY PLAN", callback_data="my_plan"), InlineKeyboardButton("📞 Contact Admin", url="http://t.me/Provider169_bot")]
     ]))
 
-# --- 👑 LINK GENERATOR (OLD FEATURE) ---
+# --- 👑 LINK GENERATOR ---
 @app.on_message(filters.user(ADMIN_ID) & (filters.command("link") | filters.media | filters.regex(r"t.me\/")))
 async def link_gen(client, message):
     try:
         target = message.reply_to_message if message.reply_to_message else message
-        if "start=" in (message.text or ""):
+        if message.text and "start=" in message.text:
             fid = message.text.split("start=")[1].split()[0]
             target = await client.get_messages(STORAGE_CHANNEL_ID, int(fid))
         msg = await target.copy(STORAGE_CHANNEL_ID)
@@ -96,7 +105,7 @@ async def link_gen(client, message):
         await message.reply(f"✅ **Permanent Link:** `{link}`")
     except: await message.reply("❌ Error generating link.")
 
-# --- 👑 ADMIN PANEL (NEW BUTTONS ADDED) ---
+# --- 👑 ADMIN PANEL (WITH MANAGEMENT BUTTONS) ---
 @app.on_message(filters.user(ADMIN_ID) & filters.command("admin"))
 async def admin_panel(client, message):
     total = await users_col.count_documents({}); prem = await users_col.count_documents({"status": "premium"})
@@ -108,7 +117,7 @@ async def admin_panel(client, message):
     ]
     await message.reply(text, reply_markup=InlineKeyboardMarkup(btns))
 
-# --- PHOTO HANDLER (OLD FEATURE) ---
+# --- PHOTO HANDLER (PAYMENT PROOF) ---
 @app.on_message(filters.photo & filters.private)
 async def user_ss(client, message):
     uid = message.from_user.id
@@ -116,9 +125,9 @@ async def user_ss(client, message):
     btns = InlineKeyboardMarkup([[InlineKeyboardButton("1 Day", callback_data=f"apr_{uid}_1"), InlineKeyboardButton("7 Day", callback_data=f"apr_{uid}_7")],
                                  [InlineKeyboardButton("1 Month", callback_data=f"apr_{uid}_30"), InlineKeyboardButton("Reject", callback_data=f"rej_{uid}")]])
     await message.copy(ADMIN_ID, caption=f"📩 Proof from `{uid}`", reply_markup=btns)
-    await message.reply("✅ Request Submitted! Waiting for approval.")
+    await message.reply("✅ Membership Request Submitted!\nStatus: Pending")
 
-# --- CALLBACK HANDLER (ALL BUTTONS WORK) ---
+# --- CALLBACK HANDLER ---
 @app.on_callback_query()
 async def cb_handler(client, cb):
     data = cb.data
@@ -139,18 +148,24 @@ async def cb_handler(client, cb):
     elif data.startswith("apr_"):
         _, u, d = data.split("_"); exp = datetime.now() + timedelta(days=int(d))
         await users_col.update_one({"user_id": int(u)}, {"$set": {"status": "premium", "expiry": exp}}, upsert=True)
-        await client.send_message(int(u), "✅ Premium Activated!"); await cb.message.edit_caption("Approved ✅")
+        await client.send_message(int(u), "✅ Premium Activated!"); await cb.message.edit_caption(f"Approved for {d} days ✅")
+    elif data == "my_plan":
+        user = await users_col.find_one({"user_id": cb.from_user.id})
+        status = "Active ✅" if user and user.get("status") == "premium" else "Inactive ❌"
+        await cb.answer(f"Your Plan: {status}", show_alert=True)
     elif data == "check_joined":
         if await check_fjoin(cb.from_user.id): await cb.message.delete(); await start(client, cb.message)
         else: await cb.answer("Join first!", show_alert=True)
     elif data == "close_admin": await cb.message.delete()
-    elif data == "m_stats": await cb.answer("Check Panel Text for Stats", show_alert=True)
+    elif data == "m_stats": await cb.answer(f"Stats shown in panel.", show_alert=True)
 
-# --- BOOT ---
+# --- BOOT FIX ---
 async def main():
     threading.Thread(target=run_flask, daemon=True).start()
     asyncio.create_task(global_checker())
-    await app.start(); await idle()
+    await app.start()
+    await idle()
 
 if __name__ == "__main__":
-    asyncio.get_event_loop().run_until_complete(main())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
