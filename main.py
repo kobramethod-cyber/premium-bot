@@ -7,13 +7,15 @@ from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from motor.motor_asyncio import AsyncIOMotorClient
 
-# --- RENDER PORT FIX ---
+# --- RENDER PORT FIX (Isse bot reply dena shuru karega) ---
 server = Flask('')
 @server.route('/')
 def home(): return "Bot is Alive 24/7"
-def run_server(): server.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
+def run_server(): 
+    port = int(os.environ.get("PORT", 8080))
+    server.run(host='0.0.0.0', port=port)
 
-# --- CONFIG ---
+# --- CONFIG (Render Variables se lega) ---
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -162,9 +164,11 @@ async def monitor():
         await asyncio.sleep(60)
 
 async def main():
+    # Render Port activity start karein
     Thread(target=run_server).start()
     await app.start()
     asyncio.create_task(monitor())
+    print("Bot is alive and listening!")
     await asyncio.get_event_loop().create_future()
 
 if __name__ == "__main__":
