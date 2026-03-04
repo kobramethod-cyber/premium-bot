@@ -15,7 +15,7 @@ def run_server():
     port = int(os.environ.get("PORT", 8080))
     server.run(host='0.0.0.0', port=port)
 
-# --- CONFIG (Check these in Render Variables) ---
+# --- CONFIG ---
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -28,8 +28,8 @@ BINANCE_ID = "1119812744"
 FORCE_CHANNEL_LINK = "https://t.me/+mInAMHlOgIo0Yjg1"
 FORCE_CHANNEL_ID = -1003575487358
 
-# Database Connection
-db_client = AsyncIOMotorClient(MONGO_URI)
+# Database connection with timeout to prevent bot hang
+db_client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 db = db_client.premium_bot
 users_db = db.users
 links_db = db.links
@@ -55,20 +55,24 @@ async def check_premium(user_id):
 async def start_cmd(client, message):
     user_id = message.from_user.id
     
-    # Force Join Check
+    # 1. Force Join Check
     if not await is_subscribed(user_id):
-        return await message.reply(f"Hello {message.from_user.mention}\n\nYou need to join in my Channel/Group to use me\n\nKindly Please join Channel...",
+        return await message.reply(
+            f"Hello {message.from_user.mention}\n\nYou need to join in my Channel/Group to use me\n\nKindly Please join Channel...",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("Join channel", url=FORCE_CHANNEL_LINK)],
                 [InlineKeyboardButton("I am joined", callback_data="check_join")]
-            ]))
+            ])
+        )
 
-    # Link Access Logic
+    # 2. Link Access Logic (Premium Check)
     if len(message.command) > 1 and message.command[1].startswith("get_"):
         is_p, _ = await check_premium(user_id)
         if not is_p:
-            return await message.reply("❗ This content is for Premium Users only.", 
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💎 BUY PREMIUM 💎", callback_data="buy_premium")]]))
+            return await message.reply(
+                "❗ This content is for Premium Users only.", 
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💎 BUY PREMIUM 💎", callback_data="buy_premium")]])
+            )
         
         link_id = message.command[1].split("_")[1]
         data = await links_db.find_one({"link_id": link_id})
@@ -76,17 +80,21 @@ async def start_cmd(client, message):
             content = await client.copy_message(user_id, STORAGE_CHANNEL_ID, data["msg_id"])
             warn = await message.reply("⚠️ WARNING: This message will be auto-deleted in 10 minutes!")
             await asyncio.sleep(600)
-            await content.delete()
-            await warn.delete()
+            try:
+                await content.delete()
+                await warn.delete()
+            except: pass
             return
 
-    # Main Menu (Wahi caption jo aapne diya)
-    await message.reply(f"Hello {message.from_user.mention}\n\nWelecome to premium bot \n\nPremium ke liye buy premium button tap kare",
+    # 3. Main Menu
+    await message.reply(
+        f"Hello {message.from_user.mention}\n\nWelecome to premium bot\n\nPremium ke liye buy premium button tap kare",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("💎 BUY PREMIUM 💎", callback_data="buy_premium")],
             [InlineKeyboardButton("⚙️ MY PLAN ⚙️", callback_data="my_plan")],
             [InlineKeyboardButton("📞 Contact Admin 📞", user_id=ADMIN_ID)]
-        ]))
+        ])
+    )
 
 @app.on_message(filters.command("link") & filters.user(ADMIN_ID) & filters.reply)
 async def gen_link(client, message):
@@ -109,7 +117,13 @@ async def cb_handler(client, query: CallbackQuery):
             await query.answer("Please join the channel first!", show_alert=True)
 
     elif data == "buy_premium":
-        cap = "✦ 𝗦𝗛𝗢𝗥𝗧𝗡𝗘𝗥 𝗣𝗟𝗔𝗡𝗦\nᴅᴜʀᴀᴛɪᴏɴ & ᴘʀɪᴄᴇ\n────────────────────\n›› 1 days : ₹30 / $ 0.50\n›› 7 Days : ₹70 / $ 1\n›› 15 Days : ₹120 / $ 1.50\n›› 1 Months : ₹200 / $ 2.50\n\n❐ 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗠𝗘𝗧𝗛𝗢𝗗𝗦\n❐ 𝗉𝖺𝗒𝗍𝗆 • 𝗀𝗉𝖺𝗒 • 𝗉𝗁𝗈𝗇𝖾 𝗉𝖺𝗒 • 𝗎𝗉𝗂 𝖺𝗇𝖽 𝗊𝗋 and binnance\n────────────────────\n✦ Pʀᴇᴍɪᴜᴍ ᴡɪʟʟ ʙᴇ ᴀᴅᴅᴇᴅ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ ᴏɴᴄᴇ ᴘᴀɪᴅ\n✦ 𝗔𝗙𝗧𝗘𝗥 𝗣𝗔𝗬𝗠𝗘𝗡𝗧:\n❐ Sᴇɴᴅ ᴀ ꜱᴄʀᴇᴇɴꜱʜᴏᴛ & ᴡᴀɪᴛ ᴀ ꜰᴇᴡ ᴍɪɴᴜᴛᴇꜱ ғᴏʀ ᴀᴄᴛɪᴠᴀᴛɪᴏɴ ✓"
+        cap = (
+            "✦ 𝗦𝗛𝗢𝗥𝗧𝗡𝗘𝗥 𝗣𝗟𝗔𝗡𝗦\nᴅᴜʀᴀᴛɪᴏɴ & ᴘʀɪᴄᴇ\n────────────────────\n"
+            "›› 1 days : ₹30 / $ 0.50\n›› 7 Days : ₹70 / $ 1\n"
+            "›› 15 Days : ₹120 / $ 1.50\n›› 1 Months : ₹200 / $ 2.50\n\n"
+            "❐ 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗠𝗘𝗧𝗛𝗢𝗗𝗦\n❐ 𝗉𝖺𝗒𝗍𝗆 • 𝗀𝗉𝖺𝗒 • 𝗉𝗁𝗈𝗇𝖾 𝗉𝖺𝗒 • 𝗎𝗉𝗂 𝖺𝗇𝖽 𝗊𝗋 and binnance\n────────────────────\n"
+            "✦ Pʀᴇᴍɪᴜᴍ ᴡɪʟʟ ʙᴇ ᴀᴅᴅᴇᴅ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ ᴏɴᴄᴇ ᴘᴀɪᴅ\n✦ 𝗔𝗙𝗧𝗘𝗥 𝗣𝗔𝗬𝗠𝗘𝗡𝗧:\n❐ Sᴇɴᴅ ᴀ ꜱᴄʀᴇᴇɴꜱʜᴏᴛ & ᴡᴀɪᴛ ᴀ ꜰᴇᴡ ᴍɪɴᴜᴛᴇꜱ ғᴏʀ ᴀᴄᴛɪᴠᴀᴛɪᴏɴ ✓"
+        )
         btns = [[InlineKeyboardButton(f"{d} DAY", callback_data=f"p_{d}")] for d in [1, 7, 15, 30]]
         await query.message.edit(cap, reply_markup=InlineKeyboardMarkup(btns))
 
@@ -171,7 +185,7 @@ async def main():
     Thread(target=run_server).start()
     await app.start()
     asyncio.create_task(monitor())
-    print("Bot is started successfully!") # Yeh line dikhe toh bot chal raha hai
+    print("Bot is started successfully!") 
     await asyncio.get_event_loop().create_future()
 
 if __name__ == "__main__":
