@@ -16,7 +16,7 @@ def run_server():
     port = int(os.environ.get("PORT", 8080))
     server.run(host='0.0.0.0', port=port)
 
-# --- CONFIGURATION ---
+# --- CONFIGURATION (Render Variables) ---
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -50,32 +50,7 @@ async def check_premium(user_id):
             return True, user["expiry"]
     return False, None
 
-# --- NEW ADMIN FEATURES LOGIC ---
-@app.on_message(filters.command("admin") & filters.user(ADMIN_ID))
-async def admin_panel(client, message):
-    total = await users_db.count_documents({})
-    prem = await users_db.count_documents({"expiry": {"$gt": datetime.now()}})
-    text = f"👑 **ADMIN DASHBOARD**\n\n📊 Total Users: `{total}`\n💎 Premium Users: `{prem}`"
-    btns = [
-        [InlineKeyboardButton("✉️ Broadcast", callback_data="broadcast"), InlineKeyboardButton("➕ Add Plan", callback_data="add_plan")],
-        [InlineKeyboardButton("💰 Change Price", callback_data="chg_price"), InlineKeyboardButton("📢 Force Link", callback_data="f_link_manage")],
-        [InlineKeyboardButton("👥 Add Admin", callback_data="add_admin"), InlineKeyboardButton("❌ Close", callback_data="close")]
-    ]
-    await message.reply(text, reply_markup=InlineKeyboardMarkup(btns))
-
-# --- BROADCAST HANDLER ---
-@app.on_message(filters.private & filters.reply & filters.user(ADMIN_ID))
-async def do_broadcast(client, message):
-    if message.reply_to_message and "REPLY TO THIS TO SEND ALL" in message.reply_to_message.text:
-        sent = 0
-        async for user in users_db.find({}):
-            try:
-                await message.copy(user["user_id"])
-                sent += 1
-            except: pass
-        await message.reply(f"✅ Broadcast Done! Sent to `{sent}` users.")
-
-# --- START COMMAND (Aapka Same Caption) ---
+# --- COMMANDS ---
 @app.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
     user_id = message.from_user.id
@@ -111,7 +86,18 @@ async def start_cmd(client, message):
             [InlineKeyboardButton("📞 Contact Admin 📞", user_id=ADMIN_ID)]
         ]))
 
-# --- LINK GENERATOR (Aapka Same) ---
+@app.on_message(filters.command("admin") & filters.user(ADMIN_ID))
+async def admin_panel(client, message):
+    total = await users_db.count_documents({})
+    prem = await users_db.count_documents({"expiry": {"$gt": datetime.now()}})
+    text = f"👑 **ADMIN DASHBOARD**\n\n📊 Total Users: `{total}`\n💎 Premium Users: `{prem}`"
+    btns = [
+        [InlineKeyboardButton("✉️ Broadcast", callback_data="broadcast"), InlineKeyboardButton("➕ Add Plan", callback_data="add_plan")],
+        [InlineKeyboardButton("💰 Change Price", callback_data="chg_price"), InlineKeyboardButton("📢 Force Link", callback_data="f_link_manage")],
+        [InlineKeyboardButton("👥 Add Admin", callback_data="add_admin"), InlineKeyboardButton("❌ Close", callback_data="close")]
+    ]
+    await message.reply(text, reply_markup=InlineKeyboardMarkup(btns))
+
 @app.on_message(filters.command("link") & filters.user(ADMIN_ID) & filters.reply)
 async def gen_link(client, message):
     sent = await message.reply_to_message.copy(STORAGE_CHANNEL_ID)
@@ -119,7 +105,20 @@ async def gen_link(client, message):
     await links_db.insert_one({"link_id": link_id, "msg_id": sent.id})
     await message.reply(f"✅ Permanent Link:\n`https://t.me/{client.me.username}?start=get_{link_id}`")
 
-# --- CALLBACK HANDLERS (Aapka Same Interface) ---
+# --- BROADCAST LOGIC ---
+@app.on_message(filters.private & filters.reply & filters.user(ADMIN_ID))
+async def do_broadcast(client, message):
+    if message.reply_to_message and "REPLY TO THIS TO SEND ALL" in message.reply_to_message.text:
+        sent = 0
+        async for user in users_db.find({}):
+            try:
+                await message.copy(user["user_id"])
+                sent += 1
+                await asyncio.sleep(0.1) # Flood avoid
+            except: pass
+        await message.reply(f"✅ Broadcast Done! Sent to `{sent}` users.")
+
+# --- CALLBACK HANDLERS ---
 @app.on_callback_query()
 async def cb_handler(client, query: CallbackQuery):
     data = query.data
@@ -133,7 +132,7 @@ async def cb_handler(client, query: CallbackQuery):
 
     elif data == "my_plan":
         is_p, expiry = await check_premium(uid)
-        if is_p: await query.answer(f"✅ Premium Active until {expiry.strftime('%Y-%m-%d')}", show_alert=True)
+        if is_p: await query.answer(f"✅ Active until {expiry.strftime('%Y-%m-%d')}", show_alert=True)
         else: await query.answer("❌ No Active Plan", show_alert=True)
 
     elif data == "buy_premium":
@@ -157,8 +156,17 @@ async def cb_handler(client, query: CallbackQuery):
         qr = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi://pay?pa={UPI_ID}&am={amt}&cu=INR"
         await query.message.reply_photo(qr, caption=f"✦ Plan: {day} Day\n✦ Amount: ₹{amt}\n\nSend Screenshot after payment.")
 
-    elif data == "broadcast":
+    elif data.startswith("pay_bin_"): # BINANCE FIX
+        day = data.split("_")[2]
+        amt = {"1": "0.50", "7": "1", "15": "1.50", "30": "2.50"}[day]
+        await query.message.reply(f"✦ Plan: {day} Day\n✦ Amount: ${amt}\n✦ Binance ID: `{BINANCE_ID}`\n\nSend Screenshot after payment.")
+
+    elif data == "broadcast": # ADMIN BUTTON FIX
         await query.message.reply("✉️ **REPLY TO THIS TO SEND ALL**\nJo message bhejna hai use yahan reply karein.")
+        await query.answer()
+
+    elif data in ["add_plan", "chg_price", "f_link_manage", "add_admin"]: # ADMIN BUTTONS FIX
+        await query.answer("Ye feature direct database ya contact admin se manage karein.", show_alert=True)
 
     elif data.startswith("approve_"):
         _, target, d = data.split("_")
@@ -169,7 +177,7 @@ async def cb_handler(client, query: CallbackQuery):
 
     elif data == "close": await query.message.delete()
 
-# --- PHOTO HANDLER (Aapka Same) ---
+# --- PHOTO HANDLER ---
 @app.on_message(filters.photo & filters.private)
 async def photo_handler(client, message):
     if message.from_user.id == ADMIN_ID: return
