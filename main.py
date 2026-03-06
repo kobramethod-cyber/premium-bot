@@ -1,6 +1,5 @@
 import os
 import asyncio
-import sys
 from datetime import datetime, timedelta
 from flask import Flask
 from threading import Thread
@@ -11,22 +10,18 @@ from motor.motor_asyncio import AsyncIOMotorClient
 # --- RENDER PORT FIX ---
 server = Flask('')
 @server.route('/')
-def home(): return "Bot is Alive"
+def home(): return "Bot is Alive 24/7"
 
 def run_server():
     port = int(os.environ.get("PORT", 8080))
     server.run(host='0.0.0.0', port=port)
 
-# --- CONFIG (Verify these in Render Dashboard) ---
-try:
-    API_ID = int(os.environ.get("API_ID"))
-    API_HASH = os.environ.get("API_HASH")
-    BOT_TOKEN = os.environ.get("BOT_TOKEN")
-    ADMIN_ID = int(os.environ.get("ADMIN_ID"))
-    MONGO_URI = os.environ.get("MONGO_URI")
-except Exception as e:
-    print(f"ERROR: Missing or invalid Environment Variables: {e}")
-    sys.exit(1)
+# --- CONFIG (Check these in Render Variables) ---
+API_ID = int(os.environ.get("API_ID"))
+API_HASH = os.environ.get("API_HASH")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+ADMIN_ID = int(os.environ.get("ADMIN_ID"))
+MONGO_URI = os.environ.get("MONGO_URI")
 
 STORAGE_CHANNEL_ID = -1003792958477
 UPI_ID = "BHARATPE09910027091@yesbankltd"
@@ -105,7 +100,7 @@ async def cb_handler(client, query: CallbackQuery):
         if await is_subscribed(uid): await start_cmd(client, query.message)
         else: await query.answer("Please join the channel first!", show_alert=True)
     elif data == "buy_premium":
-        cap = "✦ 𝗦𝗛𝗢𝗥𝗧𝗡𝗘𝗥 𝗣𝗟𝗔𝗡𝗦\nᴅᴜʀᴀᴛɪᴏɴ & ᴘʀɪᴄᴇ\n────────────────────\n›› 1 days : ₹30 / $ 0.50\n›› 7 Days : ₹70 / $ 1\n›› 15 Days : ₹120 / $ 1.50\n›› 1 Months : ₹200 / $ 2.50\n\n❐ 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗠𝗘𝗧𝗛𝗢𝗗𝗦\n❐ 𝗉𝖺𝗒𝗍𝗆 • 𝗀𝗉𝖺𝗒 • 𝗉𝗁𝗈𝗇𝖾 𝗉𝖺𝗒 • 𝗎𝗉𝗂 𝖺𝗇𝖽 𝗊𝗋 and binnance\n────────────────────\n✦ Pʀᴇᴍɪᴜᴍ ᴡɪʟʟ ʙᴇ ᴀᴅᴅᴇᴅ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ ᴏɴᴄᴇ ᴘᴀɪᴅ\n✦ 𝗔𝗙𝗧𝗘𝗥 𝗣𝗔𝗬𝗠𝗘𝗡𝗧:\n❐ Sᴇɴᴅ ᴀ ꜱᴄʀᴇᴇɴꜱʜᴏᴛ & ᴡᴀɪᴛ ᴀ ꜰᴇᴡ ᴍɪɴᴜᴛᴇꜱ ғᴏʀ ᴀᴄᴛɪᴠᴀᴛɪᴏɴ ✓"
+        cap = "✦ 𝗦𝗛𝗢𝗥𝗧𝗡𝗘𝗥 𝗣𝗟𝗔𝗡𝗦\nᴅᴜʀᴀᴛɪᴏɴ & ᴘʀɪᴄᴇ\n────────────────────\n›› 1 days : ₹30 / $ 0.50\n›› 7 Days : ₹70 / $ 1\n›› 15 Days : ₹120 / $ 1.50\n›› 1 Months : ₹200 / $ 2.50\n\n❐ 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗠𝗘𝗧𝗛𝗢𝗗𝗦\n❐ 𝗉𝖺𝗒𝗍𝗆 • 𝗀𝗉𝖺𝗒 • 𝗉𝗁𝗈𝗇𝖾 𝗉𝖺𝗒 • 𝗎𝗉𝗂 𝖺𝗇ᴅ 𝗊𝗋 and binnance\n────────────────────\n✦ Pʀᴇᴍɪᴜᴍ ᴡɪʟʟ ʙᴇ ᴀᴅᴅᴇᴅ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ ᴏɴᴄᴇ ᴘᴀɪᴅ\n✦ 𝗔𝗙𝗧𝗘𝗥 𝗣𝗔𝗬𝗠𝗘𝗡𝗧:\n❐ Sᴇɴᴅ ᴀ ꜱᴄʀᴇᴇɴꜱʜᴏᴛ & ᴡᴀɪᴛ ᴀ ꜰᴇᴡ ᴍɪɴᴜᴛᴇꜱ ғᴏʀ ᴀᴄᴛɪᴠᴀᴛɪᴏɴ ✓"
         btns = [[InlineKeyboardButton(f"{d} DAY", callback_data=f"p_{d}")] for d in [1, 7, 15, 30]]
         await query.message.edit(cap, reply_markup=InlineKeyboardMarkup(btns))
     elif data.startswith("p_"):
@@ -150,10 +145,9 @@ async def monitor():
         await asyncio.sleep(60)
 
 async def main():
-    Thread(target=run_server).start()
+    Thread(target=run_server, daemon=True).start()
     await app.start()
     asyncio.create_task(monitor())
-    print(">>> BOT IS LIVE AND READY! <<<")
     await asyncio.get_event_loop().create_future()
 
 if __name__ == "__main__":
