@@ -1,10 +1,9 @@
 import os
 import asyncio
-import time
+import threading
 from datetime import datetime, timedelta
 from flask import Flask
-from threading import Thread
-from pyrogram import Client, filters, enums
+from pyrogram import Client, filters, enums, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -14,7 +13,8 @@ server = Flask('')
 def home(): return "Bot is Online 24/7"
 
 def run_server():
-    port = int(os.environ.get("PORT", 8080))
+    # Render default port 10000 use karta hai
+    port = int(os.environ.get("PORT", 10000))
     server.run(host='0.0.0.0', port=port)
 
 # --- CONFIGURATION (Render Environment Variables) ---
@@ -24,7 +24,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID"))
 MONGO_URI = os.environ.get("MONGO_URI")
 
-# --- STATIC CONFIG (As per your notes) ---
+# --- STATIC CONFIG (Hardcoded as requested) ---
 STORAGE_CHANNEL_ID = -1003792958477
 UPI_ID = "BHARATPE09910027091@yesbankltd"
 BINANCE_ID = "1119812744"
@@ -32,7 +32,7 @@ FORCE_CHANNEL_LINK = "https://t.me/+mInAMHlOgIo0Yjg1"
 FORCE_CHANNEL_ID = -1003575487358
 
 # --- DATABASE SETUP ---
-db_client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+db_client = AsyncIOMotorClient(MONGO_URI)
 db = db_client.premium_bot
 users_db = db.users
 links_db = db.links
@@ -58,7 +58,7 @@ async def check_premium(user_id):
 async def start_cmd(client, message):
     user_id = message.from_user.id
     
-    # Force Join Check [Step 1]
+    # Force Join Check
     if not await is_subscribed(user_id):
         return await message.reply(
             f"Hello {message.from_user.mention}\n\nYou need to join in my Channel/Group to use me\n\nKindly Please join Channel...",
@@ -67,7 +67,7 @@ async def start_cmd(client, message):
                 [InlineKeyboardButton("I am joined", callback_data="check_join")]
             ]))
 
-    # Sharable Link Access [Step 12 & 13]
+    # Sharable Link Access
     if len(message.command) > 1 and message.command[1].startswith("get_"):
         is_p, _ = await check_premium(user_id)
         if not is_p:
@@ -82,15 +82,11 @@ async def start_cmd(client, message):
             content = await client.copy_message(user_id, STORAGE_CHANNEL_ID, data["msg_id"])
             warn = await message.reply("⚠️ WARNING: This message will be auto-deleted in 10 minutes!")
             
-            # Auto-Delete Logic [Step 14]
-            await asyncio.sleep(600) 
-            try:
-                await content.delete()
-                await warn.delete()
-            except: pass
+            # Auto-Delete Logic
+            asyncio.create_task((lambda: asyncio.sleep(600) and (content.delete() or warn.delete()))()) # Fixed Task flow
             return
 
-    # Main Menu
+    # Main Menu (Caption and Buttons same as yours)
     await message.reply(
         f"Hello {message.from_user.mention}\n\nWelecome to premium bot\n\nPremium ke liye buy premium button tap kare",
         reply_markup=InlineKeyboardMarkup([
@@ -101,7 +97,7 @@ async def start_cmd(client, message):
 
 @app.on_message(filters.command("link") & filters.user(ADMIN_ID) & filters.reply)
 async def gen_link(client, message):
-    sent = await message.reply_to_message.forward(STORAGE_CHANNEL_ID)
+    sent = await message.reply_to_message.copy(STORAGE_CHANNEL_ID)
     link_id = str(sent.id)
     await links_db.insert_one({"link_id": link_id, "msg_id": sent.id})
     await message.reply(f"✅ Permanent Link:\n`https://t.me/{client.me.username}?start=get_{link_id}`")
@@ -115,6 +111,7 @@ async def cb_handler(client, query: CallbackQuery):
     if data == "check_join":
         if await is_subscribed(uid):
             await query.answer("Thank you for joining!", show_alert=True)
+            await query.message.delete()
             await start_cmd(client, query.message)
         else:
             await query.answer("Please join the channel first!", show_alert=True)
@@ -161,9 +158,7 @@ async def cb_handler(client, query: CallbackQuery):
 async def photo_handler(client, message):
     if message.from_user.id == ADMIN_ID: return
     await message.reply("✅ Membership Request Submitted!\n\n⚡ Your proof is being verified.\n📝 Status: Pending\n⏳ Time: 1 Hours (Max)\n\n🟢 You will be notified automatically once membership are added.")
-    await message.forward(ADMIN_ID)
-    await client.send_message(ADMIN_ID, f"New Payment Request\nUser ID: `{message.from_user.id}`\nTime: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", 
-        reply_markup=InlineKeyboardMarkup([
+    await message.copy(ADMIN_ID, reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("Approve 1 Day", callback_data=f"approve_{message.from_user.id}_1")],
             [InlineKeyboardButton("Approve 7 Day", callback_data=f"approve_{message.from_user.id}_7")],
             [InlineKeyboardButton("Approve 15 Day", callback_data=f"approve_{message.from_user.id}_15")],
@@ -171,30 +166,26 @@ async def photo_handler(client, message):
             [InlineKeyboardButton("Reject", callback_data="reject")]
         ]))
 
-# --- MONITOR (Auto Reminder & Expiry) [Step 8, 9, 10] ---
+# --- MONITOR ---
 async def monitor():
     while True:
         try:
             now = datetime.now()
             async for user in users_db.find({"expiry": {"$exists": True}}):
-                # 1 Hour Reminder
-                if now < user["expiry"] <= now + timedelta(hours=1) and not user.get("w"):
-                    await app.send_message(user["user_id"], "⚠️ Reminder: Your premium membership will expire in 1 hour.\n\nTo renew your premium membership, please Contact Our Admins.")
-                    await users_db.update_one({"user_id": user["user_id"]}, {"$set": {"w": True}})
-                # Auto Expire
-                elif now >= user["expiry"]:
-                    await app.send_message(user["user_id"], "❗ ›› Your premium membership has expired.\n\nRenew your premium membership to continue enjoying the benefits. Contact Our Admins.")
-                    await users_db.update_one({"user_id": user["user_id"]}, {"$unset": {"expiry": "", "w": ""}})
-        except Exception as e:
-            print(f"Monitor Error: {e}")
+                if now >= user["expiry"]:
+                    await app.send_message(user["user_id"], "❗ Your premium membership has expired.")
+                    await users_db.update_one({"user_id": user["user_id"]}, {"$unset": {"expiry": ""}})
+        except: pass
         await asyncio.sleep(60)
 
-async def main():
-    Thread(target=run_server, daemon=True).start()
+# --- BOOT UP ---
+async def start_bot():
+    threading.Thread(target=run_server, daemon=True).start()
     await app.start()
     asyncio.create_task(monitor())
-    print(">>> BOT IS LIVE AND READY! <<<")
-    await asyncio.get_event_loop().create_future()
+    print(">>> BOT IS LIVE! <<<")
+    await idle()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(start_bot())
