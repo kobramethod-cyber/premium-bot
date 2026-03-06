@@ -174,7 +174,7 @@ async def cb_handler(client, query: CallbackQuery):
 async def photo_handler(client, message):
     if message.from_user.id == ADMIN_ID: return
     await message.reply("✅ Membership Request Submitted!\n\n⚡ Your proof is being verified.\n📝 Status: Pending...")
-    awaitmessage.copy(ADMIN_ID, reply_markup=InlineKeyboardMarkup([
+    await message.copy(ADMIN_ID, reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("Approve 1 Day", callback_data=f"approve_{message.from_user.id}_1")],
             [InlineKeyboardButton("Approve 7 Day", callback_data=f"approve_{message.from_user.id}_7")],
             [InlineKeyboardButton("Approve 30 Day", callback_data=f"approve_{message.from_user.id}_30")],
