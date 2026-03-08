@@ -16,7 +16,7 @@ def run_server():
     port = int(os.environ.get("PORT", 8080))
     server.run(host='0.0.0.0', port=port)
 
-# --- CONFIGURATION (Render Variables) ---
+# --- CONFIGURATION ---
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -50,6 +50,23 @@ async def check_premium(user_id):
             return True, user["expiry"]
     return False, None
 
+# --- MONITOR (Auto Expire Logic) ---
+async def expiry_monitor():
+    while True:
+        try:
+            now = datetime.now()
+            async for user in users_db.find({"expiry": {"$exists": True}}):
+                if now >= user["expiry"]:
+                    try:
+                        await app.send_message(
+                            user["user_id"], 
+                            "❗ ›› Your premium membership has expired.\n\nRenew your premium membership to continue. Contact Our Admins."
+                        )
+                    except: pass
+                    await users_db.update_one({"user_id": user["user_id"]}, {"$unset": {"expiry": ""}})
+        except: pass
+        await asyncio.sleep(60)
+
 # --- COMMANDS ---
 @app.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
@@ -73,9 +90,13 @@ async def start_cmd(client, message):
         if data:
             content = await client.copy_message(user_id, STORAGE_CHANNEL_ID, data["msg_id"])
             warn = await message.reply("⚠️ WARNING: This message will be auto-deleted in 10 minutes!")
-            await asyncio.sleep(600)
-            try: await content.delete(); await warn.delete()
-            except: pass
+            
+            # Auto-Delete Task (10 Minutes)
+            async def del_task():
+                await asyncio.sleep(600)
+                try: await content.delete(); await warn.delete()
+                except: pass
+            asyncio.create_task(del_task())
             return
 
     await message.reply(
@@ -114,7 +135,7 @@ async def do_broadcast(client, message):
             try:
                 await message.copy(user["user_id"])
                 sent += 1
-                await asyncio.sleep(0.1) # Flood avoid
+                await asyncio.sleep(0.1)
             except: pass
         await message.reply(f"✅ Broadcast Done! Sent to `{sent}` users.")
 
@@ -154,26 +175,30 @@ async def cb_handler(client, query: CallbackQuery):
         day = data.split("_")[2]
         amt = {"1": 30, "7": 70, "15": 120, "30": 200}[day]
         qr = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi://pay?pa={UPI_ID}&am={amt}&cu=INR"
-        await query.message.reply_photo(qr, caption=f"✦ Plan: {day} Day\n✦ Amount: ₹{amt}\n\nSend Screenshot after payment.")
+        # QR Caption with Dynamic Day/Price
+        upi_cap = (f"✦ Plan: {day} Day\n✦ Amount: ₹{amt}\n\n"
+                   "❐ 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗠𝗘𝗧𝗛𝗢𝗗𝗦\n❐ 𝗉𝖺𝗒𝗍𝗆 • 𝗀𝗉𝖺𝗒 • 𝗉𝗁𝗈𝗇𝖾 𝗉𝖺𝗒 • 𝗎𝗉𝗂 𝖺𝗇ᴅ 𝗊𝗋\n"
+                   "──────────────────\n"
+                   "✦ Pʀᴇᴍɪᴜᴍ ᴡɪʟʟ ʙᴇ ᴀᴅᴅᴇᴅ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ ᴏɴᴄᴇ ᴘᴀɪᴅ\n"
+                   "✦ 𝗔𝗙𝗧𝗘𝗥 𝗣𝗔𝗬𝗠𝗘𝗡𝗧:\n❐ Sᴇɴᴅ ᴀ ꜱᴄʀᴇᴇɴꜱʜᴏᴛ & ᴡᴀɪᴛ a ꜰᴇᴡ ᴍɪɴᴜᴛᴇꜱ ғᴏʀ ᴀᴄᴛɪᴠᴀᴛɪᴏɴ ✓")
+        await query.message.reply_photo(qr, caption=upi_cap)
 
-    elif data.startswith("pay_bin_"): # BINANCE FIX
+    elif data.startswith("pay_bin_"):
         day = data.split("_")[2]
         amt = {"1": "0.50", "7": "1", "15": "1.50", "30": "2.50"}[day]
         await query.message.reply(f"✦ Plan: {day} Day\n✦ Amount: ${amt}\n✦ Binance ID: `{BINANCE_ID}`\n\nSend Screenshot after payment.")
 
-    elif data == "broadcast": # ADMIN BUTTON FIX
+    elif data == "broadcast":
         await query.message.reply("✉️ **REPLY TO THIS TO SEND ALL**\nJo message bhejna hai use yahan reply karein.")
         await query.answer()
-
-    elif data in ["add_plan", "chg_price", "f_link_manage", "add_admin"]: # ADMIN BUTTONS FIX
-        await query.answer("Ye feature direct database ya contact admin se manage karein.", show_alert=True)
 
     elif data.startswith("approve_"):
         _, target, d = data.split("_")
         exp = datetime.now() + timedelta(days=int(d))
         await users_db.update_one({"user_id": int(target)}, {"$set": {"expiry": exp}}, upsert=True)
-        await client.send_message(int(target), f"✅ Pᴀʏᴍᴇɴᴛ Sᴜᴄᴄᴇssғᴜʟ!\n🎉 Pʀᴇᴍɪᴜᴍ ᴀᴄᴛɪᴠᴀᴛᴇᴅ!")
-        await query.message.edit(f"✅ Approved User {target}")
+        # Approval Notification
+        await client.send_message(int(target), f"✅ Pᴀʏᴍᴇɴᴛ Sᴜᴄᴄᴇssғᴜʟ!\n🎉 Pʀᴇᴍɪᴜᴍ ᴀᴄᴛɪᴠᴀᴛᴇᴅ ғᴏʀ {d} day!")
+        await query.message.edit(f"✅ Approved User {target} for {d} days.")
 
     elif data == "close": await query.message.delete()
 
@@ -181,7 +206,8 @@ async def cb_handler(client, query: CallbackQuery):
 @app.on_message(filters.photo & filters.private)
 async def photo_handler(client, message):
     if message.from_user.id == ADMIN_ID: return
-    await message.reply("✅ Membership Request Submitted!\n\n⚡ Your proof is being verified.\n📝 Status: Pending...")
+    # Confirmation message for user
+    await message.reply("✅ Membership Request Submitted!\n\n⚡ Your proof is being verified.\n📝 Status: Pending\n⏳ Time: 1 Hours (Max)\n\n🟢 You will be notified automatically once funds are added.")
     await message.copy(ADMIN_ID, reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("Approve 1 Day", callback_data=f"approve_{message.from_user.id}_1")],
             [InlineKeyboardButton("Approve 7 Day", callback_data=f"approve_{message.from_user.id}_7")],
@@ -192,7 +218,9 @@ async def photo_handler(client, message):
 # --- BOOT UP ---
 async def start_bot():
     threading.Thread(target=run_server, daemon=True).start()
-    await app.start(); await idle()
+    await app.start()
+    asyncio.create_task(expiry_monitor())
+    await idle()
 
 if __name__ == "__main__":
     asyncio.get_event_loop().run_until_complete(start_bot())
